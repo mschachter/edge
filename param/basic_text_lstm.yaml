@@ -1,0 +1,7 @@
+run_name: 'basic_text_lstm'
+run_dir: 'runs'
+
+data_dir: 'data'
+data_file: 'text/alice_in_wonderland.txt'
+
+n_unit: 64
