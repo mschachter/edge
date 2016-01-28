@@ -51,12 +51,13 @@ with graph.as_default():
     lstm_layer = lstm.LSTM_Layer(n_alphabet, n_unit)
 
     # Ouput weights and biases-- shall we encapsulate these into a layer?
-    Wo = tf.Variable(tf.truncated_normal([n_unit, n_alphabet], 0.0, 0.1))
-    bo = tf.Variable(tf.zeros([n_alphabet]))
+    Wo = tf.Variable(tf.truncated_normal([n_unit, n_alphabet], 0.0, 0.1), name= 'Wo')
+    bo = tf.Variable(tf.zeros([n_alphabet]), name = 'bo')
+
 
     # Used to carry over the network state between forward propagations
-    saved_output = tf.Variable(tf.zeros([n_batch, n_unit]), trainable=False)
-    saved_state = tf.Variable(tf.zeros([n_batch, n_unit]), trainable=False)
+    saved_output = tf.Variable(tf.zeros([n_batch, n_unit]), trainable=False, name = 'y')
+    saved_state = tf.Variable(tf.zeros([n_batch, n_unit]), trainable=False, name = 'c')
 
 
     ## Build the forward propagation graph
@@ -78,12 +79,13 @@ with graph.as_default():
 
 
     ## Build the optimizer
-    t = tf.Variable(0) # the step variable
-    eta = tf.train.exponential_decay(10.0, t, 5000, 0.1, staircase=True)
-    optimizer = tf.train.GradientDescentOptimizer(eta)
-    grads, params = zip(*optimizer.compute_gradients(prediction_error))
-    grads, _ = tf.clip_by_global_norm(grads, 1)
-    apply_grads = optimizer.apply_gradients(zip(grads, params), global_step=t)
+    with tf.name_scope('optimizer') as scope:
+        t = tf.Variable(0, name= 't', trainable=False) # the step variable
+        eta = tf.train.exponential_decay(10.0, t, 5000, 0.1, staircase=True)
+        optimizer = tf.train.GradientDescentOptimizer(eta)
+        grads, params = zip(*optimizer.compute_gradients(prediction_error))
+        grads, _ = tf.clip_by_global_norm(grads, 1)
+        apply_grads = optimizer.apply_gradients(zip(grads, params), global_step=t)
 
 num_steps = 7001 # cause why the fuck not
 summary_freq = 100
@@ -91,6 +93,8 @@ mean_error = 0.0
 
 with tf.Session(graph=graph) as session:
     tf.initialize_all_variables().run()
+
+    #tf.train.SummaryWriter('/tmp/lstm', graph_def = session.graph_def)
 
     for step in xrange(num_steps):
 
@@ -103,6 +107,7 @@ with tf.Session(graph=graph) as session:
         _, error_val, eta_val = session.run(
             [apply_grads, prediction_error, eta], feed_dict=feed_dict
         )
+
         mean_error += error_val
 
         if step % summary_freq == 0 and step > 0:
