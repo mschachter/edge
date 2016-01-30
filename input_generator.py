@@ -1,23 +1,27 @@
 import numpy as np
 
 class Input_Generator(object):
-    def __init__(self, text, alphabet, n_batch, n_bptt):
+    def __init__(self, text, alphabet, n_batch, n_prop):
         '''
         text is an array of integer character IDs and representing a text seq
         alphabet is array of characters ordered by ID
         n_batch is the number of simultaneous running inputs sequences
-        n_bptt is the number time steps of forward/backprop we need input for
+        n_prop is the number time steps of forward/backprop we need input for
         '''
         self.text = text
         self.n_char = text.size
         self.n_batch = n_batch
-        self.n_bptt = n_bptt
+        self.n_prop = n_prop
         self.n_alpha = alphabet.size
 
-        batch_offset = self.n_char//n_batch
+        self.cursors = None
+        self.restart_cursors()
 
-        self.cursors = [i*batch_offset for i in xrange(n_batch)]
         self.last_batch = self.next_batch()
+
+    def restart_cursors(self):
+        batch_offset = self.n_char//self.n_batch
+        self.cursors = [i*batch_offset for i in xrange(self.n_batch)]
 
     def next_batch(self):
         batch = np.zeros((self.n_batch, self.n_alpha), dtype=np.float32)
@@ -27,9 +31,9 @@ class Input_Generator(object):
         return batch
 
     def next_window(self):
-        ''' Returns the next sequence of batches whose length is n_bptt + 1 '''
+        ''' Returns the next sequence of batches whose length is n_prop + 1 '''
         window = [self.last_batch]
-        for i in xrange(self.n_bptt):
+        for i in xrange(self.n_prop):
             window.append(self.next_batch())
         self.last_batch = window[-1]
         return window

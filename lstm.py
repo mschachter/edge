@@ -30,6 +30,9 @@ class LSTM_Layer(object):
     def set_state(self, state):
         self.c = state
 
+    def get_state(self):
+        return self.c
+
 
     def step(self, x, y):
         """Updates the internal memory state and returns the output"""
