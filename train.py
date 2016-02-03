@@ -8,6 +8,7 @@ import pprint
 from input_generator import Input_Generator
 import lstm
 import util.text_processing as text_proc
+from networks import Prediction_Network
 
 t_run_state = time.time()
 
@@ -30,6 +31,9 @@ train_text, valid_text, test_text, alphabet = \
     text_proc.file_to_datasets(data_path)
 n_alphabet = alphabet.size
 
+n_train = len(train_text)
+n_valid = len(valid_text)
+
 n_batch = 64
 n_prop = 10
 
@@ -38,56 +42,37 @@ valid_input_generator = Input_Generator(valid_text, alphabet, 1, 1)
 
 n_unit = hparams['n_unit']
 
-# An output layer that returns logits-- pre-softmax-- for use efficient combination
-# with cross entropy
-class Logit_Layer(object):
-    def __init__(self, n_input, n_output):
-        self.Wo = tf.Variable(tf.truncated_normal([n_input, n_output], 0.0, 0.1), name= 'Wo')
-        self.bo = tf.Variable(tf.zeros([n_output]), name = 'bo')
-
-    def logits(self, x):
-        return tf.nn.xw_plus_b(x, self.Wo, self.bo)
 
 
 
 graph = tf.Graph()
 with graph.as_default():
 
-    ## Create the graph input and state variables
 
+    ## Define the network
+    net = Prediction_Network(n_alphabet, hparams)
+
+    ## Create the training graph
     # Input nodes
     xs = [tf.placeholder(tf.float32, shape=[n_batch, n_alphabet]) for
         _ in xrange(n_prop + 1)]
-    x_inputs = xs[:n_prop]
+    x_inputs = xs[:-1]
     x_labels = xs[1:]
-
-    # The recurrent layer
-    with tf.name_scope('lstm_layer') as scope:
-        lstm_layer = lstm.LSTM_Layer(n_alphabet, n_unit)
-
-    with tf.name_scope('ouput_layer') as scope:
-        logit_layer = Logit_Layer(n_unit, n_alphabet)
-
-
 
     # Used to carry over the network state between forward propagations
     saved_output = tf.Variable(tf.zeros([n_batch, n_unit]), trainable=False, name = 'y')
     saved_state = tf.Variable(tf.zeros([n_batch, n_unit]), trainable=False, name = 'c')
-
-
-    ## Build the forward propagation graph
     y = saved_output
-    lstm_layer.set_state(saved_state)
+    net.set_state(saved_state)
 
+    # Forward propagation
     errs = list()
     for (x_input, x_label) in zip(x_inputs, x_labels):
-        y = lstm_layer.step(x_input, y)
-        logits = logit_layer.logits(y)
+        y, logits = net.step(x_input, y)
         errs.append(tf.nn.softmax_cross_entropy_with_logits(logits, x_label))
     prediction_error = tf.reduce_mean(tf.concat(0, errs))
-
     saved_output = y
-    saved_state = lstm_layer.get_state()
+    saved_state = net.get_state()
 
     ## Build the optimizer
     with tf.name_scope('optimizer') as scope:
@@ -98,11 +83,12 @@ with graph.as_default():
         grads, _ = tf.clip_by_global_norm(grads, 1)
         apply_grads = optimizer.apply_gradients(zip(grads, params), global_step=t)
 
-    x_valid_input = tf.placeholder(tf.float32, shape=[1, n_alphabet])
-    x_valid_label = tf.placeholder(tf.float32, shape=[1, n_alphabet])
-    valid_state = ts.Variable(tf.zeros([1, n_unit]))
-    valid_ouput = ts.Variable(tf.zeros([1, n_unit]))
-    
+    valid_x_input = tf.placeholder(tf.float32, shape=[1, n_alphabet])
+    valid_x_label = tf.placeholder(tf.float32, shape=[1, n_alphabet])
+    valid_state = ts.Variable(tf.zeros([1, n_unit]), trainable=False)
+    valid_output = ts.Variable(tf.zeros([1, n_unit]), trainable=False)
+
+    net.set_state(valid_state)
 
 
 
@@ -116,12 +102,12 @@ with tf.Session(graph=graph) as session:
 
     #tf.train.SummaryWriter('/tmp/lstm', graph_def = session.graph_def)
 
-    for step in xrange(num_steps):
+    for step in range(num_steps):
 
         # Set up input value -> input var mapping
         window = input_generator.next_window()
         feed_dict = dict()
-        for i in xrange(n_prop + 1):
+        for i in range(n_prop + 1):
             feed_dict[xs[i]] = window[i]
 
         _, error_val, eta_val = session.run(
@@ -132,5 +118,13 @@ with tf.Session(graph=graph) as session:
 
         if step % summary_freq == 0 and step > 0:
             mean_error = mean_error/summary_freq
+
+            valid_state.assign(tf.zeros([1, n_unit]))
+
+            valid_output.assign(tf.zeros([1, n_unit]))
+            valid_errs = list()
+            for valid_idx in range(n_valid):
+                net.step()
+
             print 'Average error at step', step, ':', mean_error, 'learning rate:', eta_val
             mean_error = 0.0

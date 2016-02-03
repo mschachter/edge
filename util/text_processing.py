@@ -1,13 +1,16 @@
 import numpy as np
+from collections import Counter
 
-
-def string_to_indices(string):
-    alphabet = np.unique(list(string))
-    chars = np.array(list(string))
-    indices = np.zeros(len(chars), dtype = np.uint8)
-    for i in xrange(0, alphabet.size-1):
-        indices[chars == alphabet[i]] = i
-    return indices, alphabet
+def string_to_alphabet_indices(string):
+    '''Finds the alphabet used in string and returns it along with an integer
+    array that re-enodes each character in the string to its integer order in
+    the alphabet'''
+    counter = Counter(string)
+    count_pairs = sorted(counter.items(), key=lambda x: -x[1])
+    alphabet, _ = list(zip(*count_pairs))
+    alpha_ids = dict(zip(alphabet, range(len(alphabet))))
+    indices = np.array(map(alpha_ids.get, string))
+    return alphabet, indices
 
 def file_to_datasets(filename, valid_fraction = .05, test_fraction = .05,
     to_lower = True):
@@ -17,7 +20,7 @@ def file_to_datasets(filename, valid_fraction = .05, test_fraction = .05,
         if to_lower:
             text = text.lower()
 
-    text_inds, alphabet = string_to_indices(text)
+    alphabet, text_inds = string_to_alphabet_indices(text)
 
     valid_start = np.floor((1 - valid_fraction - test_fraction)*text_inds.size)
     test_start = np.floor((1 - test_fraction)*text_inds.size)
