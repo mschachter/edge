@@ -37,7 +37,7 @@ n_valid = len(valid_text)
 n_batch = 64
 n_prop = 10
 
-input_generator = Input_Generator(train_text, alphabet, n_batch, n_prop)
+train_input_generator = Input_Generator(train_text, alphabet, n_batch, n_prop)
 valid_input_generator = Input_Generator(valid_text, alphabet, 1, 1)
 
 n_unit = hparams['n_unit']
@@ -48,33 +48,31 @@ n_unit = hparams['n_unit']
 graph = tf.Graph()
 with graph.as_default():
 
+    ## First we build the training graph
 
-    ## Define the network
-    net = Prediction_Network(n_alphabet, hparams)
+    # The network and it training state
+    with tf.name_scope('training') as scope:
+        net = Prediction_Network(n_alphabet, hparams)
+        train_state = net.get_new_states(n_batch)
+        net.set_state(train_state)
 
-    ## Create the training graph
-    # Input nodes
-    xs = [tf.placeholder(tf.float32, shape=[n_batch, n_alphabet]) for
-        _ in xrange(n_prop + 1)]
-    x_inputs = xs[:-1]
-    x_labels = xs[1:]
+        # The input nodes
+        xs = [tf.placeholder(tf.float32, shape=[n_batch, n_alphabet]) for
+            _ in xrange(n_prop + 1)]
+        x_inputs = xs[:-1]
+        x_labels = xs[1:]
 
-    # Used to carry over the network state between forward propagations
-    saved_output = tf.Variable(tf.zeros([n_batch, n_unit]), trainable=False, name = 'y')
-    saved_state = tf.Variable(tf.zeros([n_batch, n_unit]), trainable=False, name = 'c')
-    y = saved_output
-    net.set_state(saved_state)
+        # The forward propagation graph
+        errs = list()
+        for (x_input, x_label) in zip(x_inputs, x_labels):
+            logits = net.step(x_input)
+            errs.append(tf.nn.softmax_cross_entropy_with_logits(logits, x_label))
+        prediction_error = tf.reduce_mean(tf.concat(0, errs))
 
-    # Forward propagation
-    errs = list()
-    for (x_input, x_label) in zip(x_inputs, x_labels):
-        y, logits = net.step(x_input, y)
-        errs.append(tf.nn.softmax_cross_entropy_with_logits(logits, x_label))
-    prediction_error = tf.reduce_mean(tf.concat(0, errs))
-    saved_output = y
-    saved_state = net.get_state()
+        # The update that allows state to carry across f-props
+        net.store_state(train_state)
 
-    ## Build the optimizer
+    # The optimizer
     with tf.name_scope('optimizer') as scope:
         t = tf.Variable(0, name= 't', trainable=False) # the step variable
         eta = tf.train.exponential_decay(10.0, t, 5000, 0.1, staircase=True)
@@ -83,14 +81,17 @@ with graph.as_default():
         grads, _ = tf.clip_by_global_norm(grads, 1)
         apply_grads = optimizer.apply_gradients(zip(grads, params), global_step=t)
 
-    valid_x_input = tf.placeholder(tf.float32, shape=[1, n_alphabet])
-    valid_x_label = tf.placeholder(tf.float32, shape=[1, n_alphabet])
-    valid_state = ts.Variable(tf.zeros([1, n_unit]), trainable=False)
-    valid_output = ts.Variable(tf.zeros([1, n_unit]), trainable=False)
+    ## Now we build the validation graph using the same parameters
+    ## but a different state since we don't want batches when validating
+    with tf.name_scope('validation') as scope:
+        valid_state = net.get_new_states(1)
+        valid_input = tf.placeholder(tf.float32, shape=[1, n_alphabet])
+        valid_label = tf.placeholder(tf.float32, shape=[1, n_alphabet])
+        logits = net.step(valid_input)
+        valid_err = tf.nn.softmax_cross_entropy_with_logits(logits, valid_label)
+        net.store_state(valid_state)
 
-    net.set_state(valid_state)
-
-
+        valid_reset = net.reset_state_op()
 
 
 num_steps = 7001 # cause why the fuck not
@@ -105,7 +106,7 @@ with tf.Session(graph=graph) as session:
     for step in range(num_steps):
 
         # Set up input value -> input var mapping
-        window = input_generator.next_window()
+        window = train_input_generator.next_window()
         feed_dict = dict()
         for i in range(n_prop + 1):
             feed_dict[xs[i]] = window[i]
@@ -119,12 +120,14 @@ with tf.Session(graph=graph) as session:
         if step % summary_freq == 0 and step > 0:
             mean_error = mean_error/summary_freq
 
-            valid_state.assign(tf.zeros([1, n_unit]))
-
-            valid_output.assign(tf.zeros([1, n_unit]))
-            valid_errs = list()
-            for valid_idx in range(n_valid):
-                net.step()
-
             print 'Average error at step', step, ':', mean_error, 'learning rate:', eta_val
             mean_error = 0.0
+
+            if step % summary_freq*10 == 0:
+                mean_valid_error = 0
+                for i in range(n_valid):
+                    window = train_input_generator.next_window()
+                    feed_dict = {valid_input: window[0], valid_input:window[1]}
+                    mean_valid_error += valid_err.eval(feed_dict)
+                mean_valid_error /= n_valid
+                print 'Validation error:', mean_valid_error
