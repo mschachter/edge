@@ -22,7 +22,7 @@ with open(param_file_path, 'r') as param_file:
 
 print '-------------'
 print 'Running on', param_file_path
-print pprint.pprint(hparams)
+pprint.pprint(hparams)
 print '-------------'
 
 data_path = os.path.join(hparams['data_dir'], hparams['data_file'])
@@ -33,8 +33,8 @@ n_alphabet = len(alphabet)
 n_train = len(train_text)
 n_valid = len(valid_text)
 
-n_batch = 13
-n_prop = 10
+n_batch = hparams['n_prop']
+n_prop = hparams['n_batch']
 
 train_input_generator = Input_Generator(train_text, alphabet, n_batch, n_prop)
 valid_input_generator = Input_Generator(valid_text, alphabet, 1, 1)
@@ -91,8 +91,6 @@ with graph.as_default():
         logits = net.step(valid_input)
         valid_err = tf.nn.softmax_cross_entropy_with_logits(logits, valid_label)
         store_valid_state = net.store_state_op(valid_state)
-
-        reset_valid_state = net.reset_state_op(valid_state)
 
 num_steps = 7001 # cause why the fuck not
 summary_freq = 100

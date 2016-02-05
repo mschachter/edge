@@ -8,20 +8,41 @@ class Linear_Layer(object):
     def output(self, x):
         return tf.nn.xw_plus_b(x, self.Wo, self.bo)
 
-# 
-# class SRNN_Layer(object):
-#
-#     def __init__(self, n_input, n_unit):
-#         self.n_input = n_input
-#         self.n_unit = n_unit
-#
-#         self.W = tf.Variable(tf.truncated_normal([n_input, n_unit], 0.0, 0.1), name = 'W')
-#         self.R = tf.Variable(tf.truncated_normal([n_unit, n_unit], 0.0, 0.1), name = 'R')
-#         self.b = tf.Variable(tf.zeros([1, n_unit]), name = 'b')
-#
-#         self.y = None
-#
 
+class SRNN_Layer(object):
+
+    def __init__(self, n_input, n_unit):
+        self.n_input = n_input
+        self.n_unit = n_unit
+
+        self.W = tf.Variable(tf.truncated_normal([n_input, n_unit], 0.0, 0.1), name = 'W')
+        self.R = tf.Variable(tf.truncated_normal([n_unit, n_unit], 0.0, 0.1), name = 'R')
+        self.b = tf.Variable(tf.zeros([1, n_unit]), name = 'b')
+
+        self.y = None
+
+    def get_new_states(self, n_state):
+        new_y = tf.Variable(tf.zeros([n_state, self.n_unit]), trainable=False, name = 'y')
+        return new_y
+
+    def set_state(self, state):
+        self.y = state
+
+    def get_state(self):
+        return self.y
+
+    def store_state_op(self, storage):
+        return storage.assign(self.y)
+
+
+    def step(self, x):
+        """Updates the internal memory state and returns the output"""
+        assert self.y is not None # need to set the state externally before stepping
+
+        u = tf.sigmoid(tf.matmul(x, self.W) + tf.matmul(self.y, self.R) + self.b)
+        self.y = tf.tanh(u)
+
+        return self.y
 
 
 class LSTM_Layer(object):
