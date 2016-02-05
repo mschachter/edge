@@ -6,7 +6,6 @@ import sys, os
 import pprint
 
 from input_generator import Input_Generator
-import lstm
 import util.text_processing as text_proc
 from networks import Prediction_Network
 
@@ -29,12 +28,12 @@ print '-------------'
 data_path = os.path.join(hparams['data_dir'], hparams['data_file'])
 train_text, valid_text, test_text, alphabet = \
     text_proc.file_to_datasets(data_path)
-n_alphabet = alphabet.size
+n_alphabet = len(alphabet)
 
 n_train = len(train_text)
 n_valid = len(valid_text)
 
-n_batch = 64
+n_batch = 13
 n_prop = 10
 
 train_input_generator = Input_Generator(train_text, alphabet, n_batch, n_prop)
@@ -70,7 +69,7 @@ with graph.as_default():
         prediction_error = tf.reduce_mean(tf.concat(0, errs))
 
         # The update that allows state to carry across f-props
-        net.store_state(train_state)
+        store_train_state = net.store_state_op(train_state)
 
     # The optimizer
     with tf.name_scope('optimizer') as scope:
@@ -85,14 +84,15 @@ with graph.as_default():
     ## but a different state since we don't want batches when validating
     with tf.name_scope('validation') as scope:
         valid_state = net.get_new_states(1)
+
+        net.set_state(valid_state)
         valid_input = tf.placeholder(tf.float32, shape=[1, n_alphabet])
         valid_label = tf.placeholder(tf.float32, shape=[1, n_alphabet])
         logits = net.step(valid_input)
         valid_err = tf.nn.softmax_cross_entropy_with_logits(logits, valid_label)
-        net.store_state(valid_state)
+        store_valid_state = net.store_state_op(valid_state)
 
-        valid_reset = net.reset_state_op()
-
+        reset_valid_state = net.reset_state_op(valid_state)
 
 num_steps = 7001 # cause why the fuck not
 summary_freq = 100
@@ -111,8 +111,8 @@ with tf.Session(graph=graph) as session:
         for i in range(n_prop + 1):
             feed_dict[xs[i]] = window[i]
 
-        _, error_val, eta_val = session.run(
-            [apply_grads, prediction_error, eta], feed_dict=feed_dict
+        error_val, eta_val, _, _ = session.run(
+            [prediction_error, eta, apply_grads, store_train_state], feed_dict=feed_dict
         )
 
         mean_error += error_val
@@ -123,11 +123,12 @@ with tf.Session(graph=graph) as session:
             print 'Average error at step', step, ':', mean_error, 'learning rate:', eta_val
             mean_error = 0.0
 
-            if step % summary_freq*10 == 0:
+            if step % (summary_freq*10) == 0:
                 mean_valid_error = 0
                 for i in range(n_valid):
-                    window = train_input_generator.next_window()
-                    feed_dict = {valid_input: window[0], valid_input:window[1]}
-                    mean_valid_error += valid_err.eval(feed_dict)
+                    window = valid_input_generator.next_window()
+                    feed_dict = {valid_input: window[0], valid_label:window[1]}
+                    valid_err_val, _ = session.run([valid_err, store_valid_state], feed_dict)
+                    mean_valid_error += valid_err_val[0]
                 mean_valid_error /= n_valid
                 print 'Validation error:', mean_valid_error

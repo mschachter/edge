@@ -12,7 +12,7 @@ class Input_Generator(object):
         self.n_char = text.size
         self.n_batch = n_batch
         self.n_prop = n_prop
-        self.n_alpha = alphabet.size
+        self.n_alpha = len(alphabet)
 
         self.cursors = None
         self.restart_cursors()
