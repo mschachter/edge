@@ -7,7 +7,8 @@ import pprint
 
 from input_generator import Input_Generator
 import util.text_processing as text_proc
-from networks import Prediction_Network
+from networks import Basic_Network
+from sampler import Sampler
 
 t_run_state = time.time()
 
@@ -51,7 +52,7 @@ with graph.as_default():
 
     # The network and it training state
     with tf.name_scope('training') as scope:
-        net = Prediction_Network(n_alphabet, hparams)
+        net = Basic_Network(n_alphabet, hparams)
         train_state = net.get_new_states(n_batch)
         net.set_state(train_state)
 
@@ -91,6 +92,9 @@ with graph.as_default():
         logits = net.step(valid_input)
         valid_err = tf.nn.softmax_cross_entropy_with_logits(logits, valid_label)
         store_valid_state = net.store_state_op(valid_state)
+        reset_valid_state = net.reset_state_op(valid_state)
+
+    sampler = Sampler(net, alphabet)
 
 num_steps = 7001 # cause why the fuck not
 summary_freq = 100
@@ -122,6 +126,7 @@ with tf.Session(graph=graph) as session:
             mean_error = 0.0
 
             if step % (summary_freq*10) == 0:
+                session.run(reset_valid_state)
                 mean_valid_error = 0
                 for i in range(n_valid):
                     window = valid_input_generator.next_window()
@@ -130,3 +135,6 @@ with tf.Session(graph=graph) as session:
                     mean_valid_error += valid_err_val[0]
                 mean_valid_error /= n_valid
                 print 'Validation error:', mean_valid_error
+
+                prime, sample_string = sampler.sample(session, bias = 2.0)
+                print 'Sampling... ' + prime + '-->' + sample_string
