@@ -19,30 +19,19 @@ class SRNN_Layer(object):
         self.R = tf.Variable(tf.truncated_normal([n_unit, n_unit], 0.0, 0.1), name = 'R')
         self.b = tf.Variable(tf.zeros([1, n_unit]), name = 'b')
 
-        self.y = None
-
     def get_new_states(self, n_state):
         new_y = tf.Variable(tf.zeros([n_state, self.n_unit]), trainable=False, name = 'y')
         return new_y
 
-    def set_state(self, state):
-        self.y = state
+    def store_state_op(self, state, storage):
+        return storage.assign(state)
 
-    def get_state(self):
-        return self.y
+    def step(self, state, x):
+        """Updates returns the state updated by input x"""
+        u = tf.sigmoid(tf.matmul(x, self.W) + tf.matmul(state, self.R) + self.b)
+        state = tf.tanh(u)
 
-    def store_state_op(self, storage):
-        return storage.assign(self.y)
-
-
-    def step(self, x):
-        """Updates the internal memory state and returns the output"""
-        assert self.y is not None # need to set the state externally before stepping
-
-        u = tf.sigmoid(tf.matmul(x, self.W) + tf.matmul(self.y, self.R) + self.b)
-        self.y = tf.tanh(u)
-
-        return self.y
+        return state
 
 
 class LSTM_Layer(object):
@@ -73,41 +62,28 @@ class LSTM_Layer(object):
             # using a positive bias suggested Joxefowicx 2015
             self.bf = tf.Variable(tf.ones([1, n_unit]), name = 'bf')
 
-        # The activity and memory state
-        self.y = None
-        self.c = None
-
     def get_new_states(self, n_state):
         new_y = tf.Variable(tf.zeros([n_state, self.n_unit]), trainable=False, name = 'y')
         new_c = tf.Variable(tf.zeros([n_state, self.n_unit]), trainable=False, name = 'c')
 
         return new_y, new_c
 
-    def set_state(self, state):
-        self.y, self.c = state
-
-    def get_state(self):
-        return self.y, self.c
 
     # Returns an op that stores the current network state in storage
-    def store_state_op(self, storage):
+    def store_state_op(self, state, storage):
+        y, c = storage
         y_storage, c_storage = storage
-        return tf.group(y_storage.assign(self.y), c_storage.assign(self.c))
+        return tf.group(y_storage.assign(y), c_storage.assign(c))
 
 
-    def step(self, x):
-        """Updates the internal memory state and returns the output"""
+    def step(self, state, x):
+        y, c = state
+        """Updates returns the state updated by input x"""
+        u = tf.sigmoid(tf.matmul(x, self.Wu) + tf.matmul(y, self.Ru) + self.bu)
+        i = tf.sigmoid(tf.matmul(x, self.Wi) + tf.matmul(y, self.Ri) + self.bi)
+        f = tf.sigmoid(tf.matmul(x, self.Wf) + tf.matmul(y, self.Rf) + self.bf)
 
-        # import ipdb
-        # ipdb.set_trace()
+        c = i*u + f*c
+        y = tf.tanh(c)
 
-        assert self.c is not None and self.y is not None # need to set the state externally before stepping
-
-        u = tf.sigmoid(tf.matmul(x, self.Wu) + tf.matmul(self.y, self.Ru) + self.bu)
-        i = tf.sigmoid(tf.matmul(x, self.Wi) + tf.matmul(self.y, self.Ri) + self.bi)
-        f = tf.sigmoid(tf.matmul(x, self.Wf) + tf.matmul(self.y, self.Rf) + self.bf)
-
-        self.c = i*u + f*self.c
-        self.y = tf.tanh(self.c)
-
-        return self.y
+        return y, c

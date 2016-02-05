@@ -14,15 +14,16 @@ class Sampler(object):
 
 
         with tf.name_scope('sampler') as scope:
-            self.state = net.get_new_states(1)
-            net.set_state(self.state)
+            cur_state = net.get_new_states(1)
+
             self.input_var = tf.placeholder(tf.float32, shape=[1, len(alphabet)])
             self.bias_var = tf.placeholder(tf.float32, shape=[1])
-            self.prediction = tf.nn.softmax(net.step(self.input_var)*(1.0 + self.bias_var))
+            next_state, output = net.step(cur_state, self.input_var)
+            self.prediction = tf.nn.softmax(output*(1.0 + self.bias_var))
 
-            self.store_sample_state = net.store_state_op(self.state)
+            self.store_sample_state = net.store_state_op(next_state, cur_state)
 
-            self.reset_sample_state = net.reset_state_op(self.state)
+            self.reset_sample_state = net.reset_state_op(cur_state)
 
     def sample(self, session, prime='Alice was ', n_sample = 100, bias = 0.0):
 

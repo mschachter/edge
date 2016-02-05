@@ -53,8 +53,8 @@ with graph.as_default():
     # The network and it training state
     with tf.name_scope('training') as scope:
         net = Basic_Network(n_alphabet, hparams)
-        train_state = net.get_new_states(n_batch)
-        net.set_state(train_state)
+        init_train_state = net.get_new_states(n_batch)
+        train_state = init_train_state
 
         # The input nodes
         xs = [tf.placeholder(tf.float32, shape=[n_batch, n_alphabet]) for
@@ -65,12 +65,14 @@ with graph.as_default():
         # The forward propagation graph
         errs = list()
         for (x_input, x_label) in zip(x_inputs, x_labels):
-            logits = net.step(x_input)
+            train_state, logits = net.step(train_state, x_input)
+            # import ipdb
+            # ipdb.set_trace()
             errs.append(tf.nn.softmax_cross_entropy_with_logits(logits, x_label))
         prediction_error = tf.reduce_mean(tf.concat(0, errs))
 
         # The update that allows state to carry across f-props
-        store_train_state = net.store_state_op(train_state)
+        store_train_state = net.store_state_op(train_state, init_train_state)
 
     # The optimizer
     with tf.name_scope('optimizer') as scope:
@@ -84,15 +86,16 @@ with graph.as_default():
     ## Now we build the validation graph using the same parameters
     ## but a different state since we don't want batches when validating
     with tf.name_scope('validation') as scope:
-        valid_state = net.get_new_states(1)
+        cur_valid_state = net.get_new_states(1)
 
-        net.set_state(valid_state)
         valid_input = tf.placeholder(tf.float32, shape=[1, n_alphabet])
         valid_label = tf.placeholder(tf.float32, shape=[1, n_alphabet])
-        logits = net.step(valid_input)
+
+        next_valid_state, logits = net.step(cur_valid_state, valid_input)
         valid_err = tf.nn.softmax_cross_entropy_with_logits(logits, valid_label)
-        store_valid_state = net.store_state_op(valid_state)
-        reset_valid_state = net.reset_state_op(valid_state)
+        store_valid_state = net.store_state_op(next_valid_state, cur_valid_state)
+
+        reset_valid_state = net.reset_state_op(cur_valid_state)
 
     sampler = Sampler(net, alphabet)
 
