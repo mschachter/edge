@@ -53,8 +53,6 @@ with graph.as_default():
     # The network and it training state
     with tf.name_scope('training') as scope:
         net = Basic_Network(n_alphabet, hparams)
-        init_train_state = net.get_new_states(n_batch)
-        train_state = init_train_state
 
         # The input nodes
         xs = [tf.placeholder(tf.float32, shape=[n_batch, n_alphabet]) for
@@ -64,15 +62,26 @@ with graph.as_default():
 
         # The forward propagation graph
         errs = list()
+
+        init_train_state = net.get_new_states(n_batch)
+        train_state = init_train_state
+
+        init_d_state = net.get_new_states(n_batch)
+        d_state = init_d_state
         for (x_input, x_label) in zip(x_inputs, x_labels):
-            train_state, logits = net.step(train_state, x_input)
-            # import ipdb
-            # ipdb.set_trace()
-            errs.append(tf.nn.softmax_cross_entropy_with_logits(logits, x_label))
+            train_state, logits = net.step(train_state, x_input, d_state)
+
+            err = tf.nn.softmax_cross_entropy_with_logits(logits, x_label)
+            errs.append(err)
+
+            d_state = net.gradient(err, train_state)
+
+
         prediction_error = tf.reduce_mean(tf.concat(0, errs))
 
         # The update that allows state to carry across f-props
         store_train_state = net.store_state_op(train_state, init_train_state)
+        store_d_state = net.store_state_op(d_state, init_d_state)
 
     # The optimizer
     with tf.name_scope('optimizer') as scope:
@@ -87,14 +96,21 @@ with graph.as_default():
     ## but a different state since we don't want batches when validating
     with tf.name_scope('validation') as scope:
         cur_valid_state = net.get_new_states(1)
+        cur_d_state = net.get_new_states(1)
 
         valid_input = tf.placeholder(tf.float32, shape=[1, n_alphabet])
         valid_label = tf.placeholder(tf.float32, shape=[1, n_alphabet])
 
-        next_valid_state, logits = net.step(cur_valid_state, valid_input)
-        valid_err = tf.nn.softmax_cross_entropy_with_logits(logits, valid_label)
-        store_valid_state = net.store_state_op(next_valid_state, cur_valid_state)
+        next_valid_state, logits = net.step(cur_valid_state, valid_input, cur_d_state)
 
+        valid_err = tf.nn.softmax_cross_entropy_with_logits(logits, valid_label)
+        next_d_state = net.gradient(valid_err, next_valid_state)
+
+
+        store_valid_state = net.store_state_op(next_valid_state, cur_valid_state)
+        store_valid_d_state = net.store_state_op(next_d_state, cur_d_state)
+
+        reset_valid_d_state = net.reset_state_op(cur_d_state)
         reset_valid_state = net.reset_state_op(cur_valid_state)
 
     sampler = Sampler(net, alphabet)
@@ -116,9 +132,10 @@ with tf.Session(graph=graph) as session:
         for i in range(n_prop + 1):
             feed_dict[xs[i]] = window[i]
 
-        error_val, eta_val, _, _ = session.run(
-            [prediction_error, eta, apply_grads, store_train_state], feed_dict=feed_dict
-        )
+        to_compute = [prediction_error, eta, apply_grads, store_train_state]
+        if net.uses_error:
+            to_compute.append(store_d_state)
+        error_val, eta_val, _, _ = session.run(to_compute, feed_dict=feed_dict)
 
         mean_error += error_val
 
@@ -130,11 +147,17 @@ with tf.Session(graph=graph) as session:
 
             if step % (summary_freq*10) == 0:
                 session.run(reset_valid_state)
+                if net.uses_error:
+                    session.run(reset_valid_d_state)
+
                 mean_valid_error = 0
                 for i in range(n_valid):
                     window = valid_input_generator.next_window()
                     feed_dict = {valid_input: window[0], valid_label:window[1]}
-                    valid_err_val, _ = session.run([valid_err, store_valid_state], feed_dict)
+                    to_compute = [valid_err, store_valid_state]
+                    if net.uses_error:
+                        to_compute.append(store_valid_d_state)
+                    valid_err_val, _ = session.run(to_compute, feed_dict)
                     mean_valid_error += valid_err_val[0]
                 mean_valid_error /= n_valid
                 print 'Validation error:', mean_valid_error

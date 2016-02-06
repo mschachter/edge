@@ -26,10 +26,27 @@ class SRNN_Layer(object):
     def store_state_op(self, state, storage):
         return storage.assign(state)
 
-    def step(self, state, x):
+    def step(self, state, x, *d_state):
         """Updates returns the state updated by input x"""
-        u = tf.sigmoid(tf.matmul(x, self.W) + tf.matmul(state, self.R) + self.b)
-        state = tf.tanh(u)
+        state = tf.sigmoid(tf.matmul(x, self.W) + tf.matmul(state, self.R) + self.b)
+
+        return state
+
+    def gradient(error, state):
+        return tf.gradients(error, state)
+
+
+class EDSRNN_Layer(object):
+
+    def __init__(self, n_input, n_unit):
+        super(ED_SRNN_LAYER, self).__init__(n_input, n_unit)
+
+        self.E = tf.Variable(tf.truncated_normal([n_input, n_unit], 0.0, 0.001), name = 'E')
+
+    def step(self, state, x, *d_state):
+        """Updates returns the state updated by input x"""
+        state = tf.sigmoid(tf.matmul(x, self.W) + tf.matmul(state, self.R)
+            + tf.matmul(d_state, self.E) + self.b)
 
         return state
 
@@ -76,7 +93,7 @@ class LSTM_Layer(object):
         return tf.group(y_storage.assign(y), c_storage.assign(c))
 
 
-    def step(self, state, x):
+    def step(self, state, x, *d_state):
         y, c = state
         """Updates returns the state updated by input x"""
         u = tf.sigmoid(tf.matmul(x, self.Wu) + tf.matmul(y, self.Ru) + self.bu)
@@ -87,3 +104,9 @@ class LSTM_Layer(object):
         y = tf.tanh(c)
 
         return y, c
+
+    def gradient(self, error, state):
+        # Using the memory state since the output state is subservient to it
+        # but who knows
+        _, c = state
+        return tf.gradients(error, c)
