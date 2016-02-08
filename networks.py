@@ -34,7 +34,7 @@ class Basic_Network(object):
 
     def gradient(self, error, state):
         '''Computes the gradient of the error with respect to the network state'''
-        self.rnn_layer.gradient(error, state)
+        return self.rnn_layer.gradient(error, state)
 
     def get_new_states(self, n_state):
         return self.rnn_layer.get_new_states(n_state)
@@ -45,6 +45,9 @@ class Basic_Network(object):
 
     # This might need a more sophisticated implementation in the future
     def reset_state_op(self, state):
-        reset_ops  = [state_var.assign(tf.zeros(state_var.get_shape()))
-            for state_var in state]
-        return tf.group(*reset_ops)
+        if type(state) is tuple or type(state) is list:
+            reset_ops  = [state_var.assign(tf.zeros(state_var.get_shape()))
+                for state_var in state]
+            return tf.group(*reset_ops)
+        else:
+            return state.assign(tf.zeros(state.get_shape()))

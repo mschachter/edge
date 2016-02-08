@@ -113,7 +113,7 @@ with graph.as_default():
         reset_valid_d_state = net.reset_state_op(cur_d_state)
         reset_valid_state = net.reset_state_op(cur_valid_state)
 
-    sampler = Sampler(net, alphabet)
+    # sampler = Sampler(net, alphabet)
 
 num_steps = 7001 # cause why the fuck not
 summary_freq = 100
@@ -135,7 +135,7 @@ with tf.Session(graph=graph) as session:
         to_compute = [prediction_error, eta, apply_grads, store_train_state]
         if net.uses_error:
             to_compute.append(store_d_state)
-        error_val, eta_val, _, _ = session.run(to_compute, feed_dict=feed_dict)
+        error_val, eta_val = session.run(to_compute, feed_dict=feed_dict)[:2]
 
         mean_error += error_val
 
@@ -157,10 +157,10 @@ with tf.Session(graph=graph) as session:
                     to_compute = [valid_err, store_valid_state]
                     if net.uses_error:
                         to_compute.append(store_valid_d_state)
-                    valid_err_val, _ = session.run(to_compute, feed_dict)
+                    valid_err_val = session.run(to_compute, feed_dict)[0]
                     mean_valid_error += valid_err_val[0]
                 mean_valid_error /= n_valid
                 print 'Validation error:', mean_valid_error
 
-                prime, sample_string = sampler.sample(session, bias = 2.0)
-                print 'Sampling... ' + prime + '-->' + sample_string
+                # prime, sample_string = sampler.sample(session, bias = 2.0)
+                # print 'Sampling... ' + prime + '-->' + sample_string

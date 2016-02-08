@@ -33,7 +33,7 @@ class SRNN_Layer(object):
         return state
 
     def gradient(self, error, state):
-        return tf.gradients(error, state)
+        return tf.gradients(error, state)[0]
 
 
 class EDSRNN_Layer(SRNN_Layer):
@@ -45,8 +45,6 @@ class EDSRNN_Layer(SRNN_Layer):
 
     def step(self, state, x, *d_state):
         """Updates returns the state updated by input x"""
-        # import ipdb
-        # ipdb.set_trace()
         state = tf.sigmoid(tf.matmul(x, self.W) + tf.matmul(state, self.R)
             + tf.matmul(d_state[0], self.E) + self.b)
 
@@ -111,4 +109,4 @@ class LSTM_Layer(object):
         # Using the memory state since the output state is subservient to it
         # but who knows
         _, c = state
-        return tf.gradients(error, c)
+        return tf.gradients(error, c)[0]
