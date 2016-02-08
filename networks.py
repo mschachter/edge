@@ -15,7 +15,7 @@ class Basic_Network(object):
             with tf.name_scope('lstm_layer') as scope:
                 self.rnn_layer = layers.LSTM_Layer(n_input, n_unit)
         elif hparams['rnn_type'] == 'EDSRNN':
-            with tf.name_scopre('edsrnn_layer') as scope:
+            with tf.name_scope('edsrnn_layer') as scope:
                 self.rnn_layer = layers.EDSRNN_Layer(n_input, n_unit)
                 self.uses_error = True
 
@@ -25,7 +25,11 @@ class Basic_Network(object):
 
     def step(self, state, x_input, *d_state):
         state = self.rnn_layer.step(state, x_input, *d_state)
-        output = self.logit_layer.output(state[0])
+        # Handle whether the state returned is an LSTM state or SRNN state
+        if type(state) is tuple:
+            output = self.logit_layer.output(state[0])
+        else:
+            output = self.logit_layer.output(state)
         return state, output
 
     def gradient(self, error, state):

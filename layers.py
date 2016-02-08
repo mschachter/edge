@@ -32,21 +32,23 @@ class SRNN_Layer(object):
 
         return state
 
-    def gradient(error, state):
+    def gradient(self, error, state):
         return tf.gradients(error, state)
 
 
-class EDSRNN_Layer(object):
+class EDSRNN_Layer(SRNN_Layer):
 
     def __init__(self, n_input, n_unit):
-        super(ED_SRNN_LAYER, self).__init__(n_input, n_unit)
+        super(EDSRNN_Layer, self).__init__(n_input, n_unit)
 
-        self.E = tf.Variable(tf.truncated_normal([n_input, n_unit], 0.0, 0.001), name = 'E')
+        self.E = tf.Variable(tf.truncated_normal([n_unit, n_unit], 0.0, 0.001), name = 'E')
 
     def step(self, state, x, *d_state):
         """Updates returns the state updated by input x"""
+        # import ipdb
+        # ipdb.set_trace()
         state = tf.sigmoid(tf.matmul(x, self.W) + tf.matmul(state, self.R)
-            + tf.matmul(d_state, self.E) + self.b)
+            + tf.matmul(d_state[0], self.E) + self.b)
 
         return state
 
