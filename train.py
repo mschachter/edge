@@ -10,7 +10,7 @@ import util.text_processing as text_proc
 from networks import Basic_Network
 from sampler import Sampler
 
-t_run_state = time.time()
+t_run_start = time.time()
 
 if len(sys.argv) > 1:
     param_file_path = sys.argv[1]
@@ -26,7 +26,21 @@ print 'Running on', param_file_path
 pprint.pprint(hparams)
 print '-------------'
 
+if 'start_date' not in hparams:
+    start_date = datetime.fromtimestamp(t_run_start)
+    date_str = start_date.isoformat()
+    hparams['start_date'] = date_str
+else:
+    date_str = hparams['start_date']
+
+run_dir  = hparams['run_dir']
+run_path = os.path.join(run_dir, hparams['run_name'] + '-' + date_str)
+if not os.path.exists(run_path):
+    os.makedirs(run_path)
+
+
 data_path = os.path.join(hparams['data_dir'], hparams['data_file'])
+
 train_text, valid_text, test_text, alphabet = \
     text_proc.file_to_datasets(data_path)
 n_alphabet = len(alphabet)
@@ -77,7 +91,8 @@ with graph.as_default():
             d_state = net.gradient(err, train_state)
 
 
-        prediction_error = tf.reduce_mean(tf.concat(0, errs))
+        train_err = tf.reduce_mean(tf.concat(0, errs))
+        train_summ = tf.scalar_summary('train error', train_err)
 
         # The update that allows state to carry across f-props
         store_train_state = net.store_state_op(train_state, init_train_state)
@@ -88,7 +103,7 @@ with graph.as_default():
         t = tf.Variable(0, name= 't', trainable=False) # the step variable
         eta = tf.train.exponential_decay(10.0, t, 5000, 0.1, staircase=True)
         optimizer = tf.train.GradientDescentOptimizer(eta)
-        grads, params = zip(*optimizer.compute_gradients(prediction_error))
+        grads, params = zip(*optimizer.compute_gradients(train_err))
         grads, _ = tf.clip_by_global_norm(grads, 1)
         apply_grads = optimizer.apply_gradients(zip(grads, params), global_step=t)
 
@@ -104,6 +119,8 @@ with graph.as_default():
         next_valid_state, logits = net.step(cur_valid_state, valid_input, cur_valid_d_state)
 
         valid_err = tf.nn.softmax_cross_entropy_with_logits(logits, valid_label)
+        valid_summ = tf.scalar_summary('validation error', valid_err[0])
+
         next_valid_d_state = net.gradient(valid_err, next_valid_state)
 
 
@@ -113,16 +130,20 @@ with graph.as_default():
         reset_valid_d_state = net.reset_state_op(cur_valid_d_state)
         reset_valid_state = net.reset_state_op(cur_valid_state)
 
-
+    saver = tf.train.Saver()
+    summaries = tf.merge_all_summaries()
 
     # sampler = Sampler(net, alphabet)
 
-num_steps = 7001 # cause why the fuck not
+num_steps = 2000#7001 # cause why the fuck not
 summary_freq = 100
 mean_error = 0.0
 
-# import ipdb
-# ipdb.set_trace()
+
+
+
+
+summary_writer = tf.train.SummaryWriter(os.path.join(run_path, 'log'))
 
 with tf.Session(graph=graph) as session:
     tf.initialize_all_variables().run()
@@ -137,18 +158,23 @@ with tf.Session(graph=graph) as session:
         for i in range(n_prop + 1):
             feed_dict[xs[i]] = window[i]
 
-        to_compute = [prediction_error, eta, apply_grads, store_train_state]
+        to_compute = [train_err, eta, apply_grads, store_train_state]
         if net.uses_error:
             to_compute.append(store_d_state)
         error_val, eta_val = session.run(to_compute, feed_dict=feed_dict)[:2]
 
         mean_error += error_val
 
+        summary_str = session.run([train_summ], feed_dict=feed_dict)[0]
+        summary_writer.add_summary(summary_str, step)
+
         if step % summary_freq == 0 and step > 0:
             mean_error = mean_error/summary_freq
 
             print 'Average error at step', step, ':', mean_error, 'learning rate:', eta_val
             mean_error = 0.0
+
+
 
             if step % (summary_freq*10) == 0:
                 session.run(reset_valid_state)
@@ -159,10 +185,11 @@ with tf.Session(graph=graph) as session:
                 for i in range(n_valid):
                     window = valid_input_generator.next_window()
                     feed_dict = {valid_input: window[0], valid_label:window[1]}
-                    to_compute = [valid_err, store_valid_state]
+                    to_compute = [valid_err, valid_summ, store_valid_state]
                     if net.uses_error:
                         to_compute.append(store_valid_d_state)
-                    valid_err_val = session.run(to_compute, feed_dict)[0]
+                    valid_err_val, summary_str = session.run(to_compute, feed_dict)[:2]
+                    summary_writer.add_summary(summary_str, step)
 
                     mean_valid_error += valid_err_val[0]
                 mean_valid_error /= n_valid
@@ -170,3 +197,10 @@ with tf.Session(graph=graph) as session:
 
                 # prime, sample_string = sampler.sample(session, bias = 2.0)
                 # print 'Sampling... ' + prime + '-->' + sample_string
+
+    # save the model, params, and stats to the run dir
+    model_file = os.path.join(run_path, 'model')
+    saver.save(session, model_file)
+    params_file = os.path.join(run_path, 'params')
+    with open(params_file, 'w') as f:
+        yaml.dump(hparams, f)
