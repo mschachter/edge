@@ -96,22 +96,24 @@ with graph.as_default():
     ## but a different state since we don't want batches when validating
     with tf.name_scope('validation') as scope:
         cur_valid_state = net.get_new_states(1)
-        cur_d_state = net.get_new_states(1)
+        cur_valid_d_state = net.get_new_states(1)
 
         valid_input = tf.placeholder(tf.float32, shape=[1, n_alphabet])
         valid_label = tf.placeholder(tf.float32, shape=[1, n_alphabet])
 
-        next_valid_state, logits = net.step(cur_valid_state, valid_input, cur_d_state)
+        next_valid_state, logits = net.step(cur_valid_state, valid_input, cur_valid_d_state)
 
         valid_err = tf.nn.softmax_cross_entropy_with_logits(logits, valid_label)
-        next_d_state = net.gradient(valid_err, next_valid_state)
+        next_valid_d_state = net.gradient(valid_err, next_valid_state)
 
 
         store_valid_state = net.store_state_op(next_valid_state, cur_valid_state)
-        store_valid_d_state = net.store_state_op(next_d_state, cur_d_state)
+        store_valid_d_state = net.store_state_op(next_valid_d_state, cur_valid_d_state)
 
-        reset_valid_d_state = net.reset_state_op(cur_d_state)
+        reset_valid_d_state = net.reset_state_op(cur_valid_d_state)
         reset_valid_state = net.reset_state_op(cur_valid_state)
+
+
 
     # sampler = Sampler(net, alphabet)
 
@@ -119,10 +121,13 @@ num_steps = 7001 # cause why the fuck not
 summary_freq = 100
 mean_error = 0.0
 
+# import ipdb
+# ipdb.set_trace()
+
 with tf.Session(graph=graph) as session:
     tf.initialize_all_variables().run()
 
-    #tf.train.SummaryWriter('/tmp/lstm', graph_def = session.graph_def)
+    # tf.train.SummaryWriter('/tmp/lstm', graph_def = session.graph_def)
 
     for step in range(num_steps):
 
@@ -158,6 +163,7 @@ with tf.Session(graph=graph) as session:
                     if net.uses_error:
                         to_compute.append(store_valid_d_state)
                     valid_err_val = session.run(to_compute, feed_dict)[0]
+
                     mean_valid_error += valid_err_val[0]
                 mean_valid_error /= n_valid
                 print 'Validation error:', mean_valid_error

@@ -25,11 +25,7 @@ class Basic_Network(object):
 
     def step(self, state, x_input, *d_state):
         state = self.rnn_layer.step(state, x_input, *d_state)
-        # Handle whether the state returned is an LSTM state or SRNN state
-        if type(state) is tuple:
-            output = self.logit_layer.output(state[0])
-        else:
-            output = self.logit_layer.output(state)
+        output = self.logit_layer.output(state[0])
         return state, output
 
     def gradient(self, error, state):
@@ -41,13 +37,12 @@ class Basic_Network(object):
 
     # Records current state of the network in storage
     def store_state_op(self, state, storage):
-        return self.rnn_layer.store_state_op(state, storage)
+        store_ops = [store_var.assign(state_var)
+            for state_var, store_var in zip(state, storage)]
+        return tf.group(*store_ops)
 
-    # This might need a more sophisticated implementation in the future
+    # Resets the network state to zero
     def reset_state_op(self, state):
-        if type(state) is tuple or type(state) is list:
-            reset_ops  = [state_var.assign(tf.zeros(state_var.get_shape()))
-                for state_var in state]
-            return tf.group(*reset_ops)
-        else:
-            return state.assign(tf.zeros(state.get_shape()))
+        reset_ops  = [state_var.assign(tf.zeros(state_var.get_shape()))
+            for state_var in state]
+        return tf.group(*reset_ops)

@@ -21,19 +21,16 @@ class SRNN_Layer(object):
 
     def get_new_states(self, n_state):
         new_y = tf.Variable(tf.zeros([n_state, self.n_unit]), trainable=False, name = 'y')
-        return new_y
-
-    def store_state_op(self, state, storage):
-        return storage.assign(state)
+        return new_y,
 
     def step(self, state, x, *d_state):
         """Updates returns the state updated by input x"""
-        state = tf.sigmoid(tf.matmul(x, self.W) + tf.matmul(state, self.R) + self.b)
+        state = tf.sigmoid(tf.matmul(x, self.W) + tf.matmul(state[0], self.R) + self.b)
 
-        return state
+        return state,
 
     def gradient(self, error, state):
-        return tf.gradients(error, state)[0]
+        return tf.gradients(error, state[0])
 
 
 class EDSRNN_Layer(SRNN_Layer):
@@ -45,10 +42,11 @@ class EDSRNN_Layer(SRNN_Layer):
 
     def step(self, state, x, *d_state):
         """Updates returns the state updated by input x"""
-        state = tf.sigmoid(tf.matmul(x, self.W) + tf.matmul(state, self.R)
+        d_state, = d_state
+        state = tf.sigmoid(tf.matmul(x, self.W) + tf.matmul(state[0], self.R)
             + tf.matmul(d_state[0], self.E) + self.b)
 
-        return state
+        return state,
 
 
 class LSTM_Layer(object):
@@ -86,13 +84,6 @@ class LSTM_Layer(object):
         return new_y, new_c
 
 
-    # Returns an op that stores the current network state in storage
-    def store_state_op(self, state, storage):
-        y, c = storage
-        y_storage, c_storage = storage
-        return tf.group(y_storage.assign(y), c_storage.assign(c))
-
-
     def step(self, state, x, *d_state):
         y, c = state
         """Updates returns the state updated by input x"""
@@ -109,4 +100,4 @@ class LSTM_Layer(object):
         # Using the memory state since the output state is subservient to it
         # but who knows
         _, c = state
-        return tf.gradients(error, c)[0]
+        return tf.gradients(error, c)
