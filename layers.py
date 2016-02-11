@@ -74,7 +74,7 @@ class LSTM_Layer(object):
         with tf.name_scope('f_gate') as scope:
             self.Wf = tf.Variable(tf.truncated_normal([n_input, n_unit], 0.0, 0.1), name = 'Wf')
             self.Rf = tf.Variable(tf.truncated_normal([n_unit, n_unit], 0.0, 0.1), name = 'Rf')
-            # using a positive bias suggested Joxefowicx 2015
+            # using a positive bias as suggested in Joxefowicx 2015
             self.bf = tf.Variable(tf.ones([1, n_unit]), name = 'bf')
 
     def get_new_states(self, n_state):

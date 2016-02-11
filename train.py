@@ -4,6 +4,8 @@ import time
 from datetime import datetime
 import sys, os
 import pprint
+import h5py
+import numpy as np
 
 from input_generator import Input_Generator
 import util.text_processing as text_proc
@@ -135,15 +137,13 @@ with graph.as_default():
 
     # sampler = Sampler(net, alphabet)
 
-num_steps = 2000#7001 # cause why the fuck not
+num_steps = 7001 # cause why the fuck not
 summary_freq = 100
 mean_error = 0.0
 
 
-
-
-
-summary_writer = tf.train.SummaryWriter(os.path.join(run_path, 'log'))
+train_error_hist = []
+valid_error_hist = []
 
 with tf.Session(graph=graph) as session:
     tf.initialize_all_variables().run()
@@ -165,11 +165,10 @@ with tf.Session(graph=graph) as session:
 
         mean_error += error_val
 
-        summary_str = session.run([train_summ], feed_dict=feed_dict)[0]
-        summary_writer.add_summary(summary_str, step)
-
         if step % summary_freq == 0 and step > 0:
             mean_error = mean_error/summary_freq
+
+            train_error_hist.append((step, mean_error))
 
             print 'Average error at step', step, ':', mean_error, 'learning rate:', eta_val
             mean_error = 0.0
@@ -185,14 +184,16 @@ with tf.Session(graph=graph) as session:
                 for i in range(n_valid):
                     window = valid_input_generator.next_window()
                     feed_dict = {valid_input: window[0], valid_label:window[1]}
-                    to_compute = [valid_err, valid_summ, store_valid_state]
+                    to_compute = [valid_err, store_valid_state]
                     if net.uses_error:
                         to_compute.append(store_valid_d_state)
-                    valid_err_val, summary_str = session.run(to_compute, feed_dict)[:2]
-                    summary_writer.add_summary(summary_str, step)
+                    valid_err_val = session.run(to_compute, feed_dict)[0]
 
                     mean_valid_error += valid_err_val[0]
                 mean_valid_error /= n_valid
+
+                valid_error_hist.append((step, mean_valid_error))
+
                 print 'Validation error:', mean_valid_error
 
                 # prime, sample_string = sampler.sample(session, bias = 2.0)
@@ -201,6 +202,20 @@ with tf.Session(graph=graph) as session:
     # save the model, params, and stats to the run dir
     model_file = os.path.join(run_path, 'model')
     saver.save(session, model_file)
-    params_file = os.path.join(run_path, 'params')
-    with open(params_file, 'w') as f:
-        yaml.dump(hparams, f)
+
+
+
+def write_dict_to_hdf5(file, dictionary):
+    with h5py.File(file, 'w') as f:
+        for key in dictionary:
+            f.create_dataset(key, data=dictionary[key])
+
+train_error_hist = np.array(zip(*train_error_hist))
+valid_error_hist = np.array(zip(*valid_error_hist))
+stats = {'train_error_hist': train_error_hist, 'valid_error_hist': valid_error_hist}
+stats_file = os.path.join(run_path, 'stats')
+write_dict_to_hdf5(stats_file, stats)
+
+params_file = os.path.join(run_path, 'params')
+with open(params_file, 'w') as f:
+    yaml.dump(hparams, f)
