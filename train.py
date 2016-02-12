@@ -123,7 +123,6 @@ with graph.as_default():
         next_valid_state, logits = net.step(cur_valid_state, valid_input, cur_valid_d_state)
 
         valid_err = tf.nn.softmax_cross_entropy_with_logits(logits, valid_label)
-        valid_summ = tf.scalar_summary('validation error', valid_err[0])
 
         next_valid_d_state = net.gradient(valid_err, next_valid_state)
 
@@ -135,7 +134,6 @@ with graph.as_default():
         reset_valid_state = net.reset_state_op(cur_valid_state)
 
     saver = tf.train.Saver()
-    summaries = tf.merge_all_summaries()
 
     # sampler = Sampler(net, alphabet)
 

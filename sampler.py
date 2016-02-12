@@ -15,19 +15,36 @@ class Sampler(object):
 
         with tf.name_scope('sampler') as scope:
             cur_state = net.get_new_states(1)
+            cur_d_state = net.get_new_states(1)
 
-            self.input_var = tf.placeholder(tf.float32, shape=[1, len(alphabet)])
-            self.bias_var = tf.placeholder(tf.float32, shape=[1])
-            next_state, output = net.step(cur_state, self.input_var)
-            self.prediction = tf.nn.softmax(output*(1.0 + self.bias_var))
+            self.input = tf.placeholder(tf.float32, shape=[1, len(alphabet)])
+            self.output = tf.placeholder(tf.float32, shape=[1, len(alphabet)])
+            self.bias = tf.placeholder(tf.float32, shape=[1])
 
-            self.store_sample_state = net.store_state_op(next_state, cur_state)
+            next_state, logits = net.step(cur_state, self.sample_input)
+            self.prediction = tf.nn.softmax(logits*(1.0 + self.bias_var))
+            err = tf.nn.softmax_cross_entropy_with_logits(logits, self.output)
 
-            self.reset_sample_state = net.reset_state_op(cur_state)
+            next_d_state = net.gradient(err, next_state)
+
+            self.store_state = net.store_state_op(next_state, cur_state)
+            self.store_d_state = net.store_state_op(next_d_state, cur_d_state)
+
+            self.reset_state = net.reset_state_op(cur_state)
+            self.reset_d_state = net.reset_state_op(cur_d_state)
+
+    def reset(self):
+        session.run(self.reset_sample_state)
+        if net.uses_error:
+            session.run(self.reset_d_state)
+
+    def predict_next(self):
 
     def sample(self, session, prime='Alice was ', n_sample = 100, bias = 0.0):
 
         session.run(self.reset_sample_state)
+        if net.uses_error:
+            session.run(self.reset_d_state)
 
         bias = np.array([bias])
         n_alpha = len(self.alphabet)
@@ -36,8 +53,11 @@ class Sampler(object):
             alpha_id = np.where(self.alphabet == prime[i])
             input_val = np.zeros([1, n_alpha], dtype=np.float32)
             input_val[0, alpha_id] = 1
-            prediction, _ = session.run([self.prediction, self.store_sample_state],
-                feed_dict = {self.input_var: input_val, self.bias_var: bias})
+            to_compute = [self.prediction, self.store_state]
+            prediction, _ = session.run([self.prediction, self.store_state],
+                feed_dict = {self.input: input_val, self.bias: bias})
+
+            if net.uses
 
         sample_string = ''
         for i in xrange(n_sample):
@@ -47,7 +67,7 @@ class Sampler(object):
             input_val = np.zeros([1, n_alpha], dtype=np.float32)
             input_val[0, alpha_id] = 1
 
-            prediction, _ = session.run([self.prediction, self.store_sample_state],
-                feed_dict = {self.input_var: input_val, self.bias_var: bias})
+            prediction, _ = session.run([self.prediction, self.store_state],
+                feed_dict = {self.input: input_val, self.bias: bias})
 
         return prime, sample_string
