@@ -17,11 +17,13 @@ t_run_start = time.time()
 if len(sys.argv) > 1:
     param_file_path = sys.argv[1]
 else:
-    param_file_path = 'param/basic_text_lstm.yaml'
+    raise Exception('Specify a parameter file to run on!')
 
-
-with open(param_file_path, 'r') as param_file:
-    hparams = yaml.load(param_file)
+with open('param/defaults.yaml', 'r') as f:
+    hparams = yaml.load(f)
+with open(param_file_path, 'r') as f:
+    net_params = yaml.load(f)
+hparams.update(net_params)
 
 print '-------------'
 print 'Running on', param_file_path
@@ -106,7 +108,7 @@ with graph.as_default():
         eta = tf.train.exponential_decay(10.0, t, 5000, 0.1, staircase=True)
         optimizer = tf.train.GradientDescentOptimizer(eta)
         grads, params = zip(*optimizer.compute_gradients(train_err))
-        grads, _ = tf.clip_by_global_norm(grads, 1)
+        grads, _ = tf.clip_by_global_norm(grads, hparams['grad_clip_norm'])
         apply_grads = optimizer.apply_gradients(zip(grads, params), global_step=t)
 
     ## Now we build the validation graph using the same parameters
@@ -137,7 +139,8 @@ with graph.as_default():
 
     # sampler = Sampler(net, alphabet)
 
-num_steps = 7001 # cause why the fuck not
+n_train_steps = hparams['n_train_steps']
+
 summary_freq = 100
 mean_error = 0.0
 
@@ -150,7 +153,7 @@ with tf.Session(graph=graph) as session:
 
     # tf.train.SummaryWriter('/tmp/lstm', graph_def = session.graph_def)
 
-    for step in range(num_steps):
+    for step in range(n_train_steps):
 
         # Set up input value -> input var mapping
         window = train_input_generator.next_window()

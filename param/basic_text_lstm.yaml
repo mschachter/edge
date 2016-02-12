@@ -1,12 +1,2 @@
-run_name: 'basic_text_lstm'
-run_dir: 'runs'
-
-data_dir: 'data'
-data_file: 'text/alice_in_wonderland.txt'
-
+run_name: 'basic_text_lstm_o_gate'
 rnn_type: 'LSTM'
-n_unit: 64
-
-
-n_prop: 10
-n_batch: 100

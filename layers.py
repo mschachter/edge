@@ -77,6 +77,12 @@ class LSTM_Layer(object):
             # using a positive bias as suggested in Joxefowicx 2015
             self.bf = tf.Variable(tf.ones([1, n_unit]), name = 'bf')
 
+        # Output gate
+        with tf.name_scope('o_gate') as scope:
+            self.Wo = tf.Variable(tf.truncated_normal([n_input, n_unit], 0.0, 0.1), name = 'Wo')
+            self.Ro = tf.Variable(tf.truncated_normal([n_unit, n_unit], 0.0, 0.1), name = 'Ro')
+            self.bo = tf.Variable(tf.zeros([1, n_unit]), name = 'bo')
+
     def get_new_states(self, n_state):
         new_y = tf.Variable(tf.zeros([n_state, self.n_unit]), trainable=False, name = 'y')
         new_c = tf.Variable(tf.zeros([n_state, self.n_unit]), trainable=False, name = 'c')
@@ -90,9 +96,10 @@ class LSTM_Layer(object):
         u = tf.sigmoid(tf.matmul(x, self.Wu) + tf.matmul(y, self.Ru) + self.bu)
         i = tf.sigmoid(tf.matmul(x, self.Wi) + tf.matmul(y, self.Ri) + self.bi)
         f = tf.sigmoid(tf.matmul(x, self.Wf) + tf.matmul(y, self.Rf) + self.bf)
+        o = tf.sigmoid(tf.matmul(x, self.Wo) + tf.matmul(y, self.Ro) + self.bo)
 
         c = i*u + f*c
-        y = tf.tanh(c)
+        y = o*tf.tanh(c)
 
         return y, c
 

@@ -1,0 +1,12 @@
+run_dir: 'runs'
+
+data_dir: 'data'
+data_file: 'text/alice_in_wonderland.txt'
+
+n_unit: 400
+
+n_prop: 10
+n_batch: 100
+n_train_steps: 7001
+
+grad_clip_norm: 1.0

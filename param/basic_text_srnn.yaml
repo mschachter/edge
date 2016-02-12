@@ -1,12 +1,2 @@
 run_name: 'basic_text_srnn'
-run_dir: 'runs'
-
-data_dir: 'data'
-data_file: 'text/alice_in_wonderland.txt'
-
 rnn_type: 'SRNN'
-n_unit: 100
-
-
-n_prop: 10
-n_batch: 100

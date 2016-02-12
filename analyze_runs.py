@@ -11,7 +11,8 @@ if len(sys.argv) <= 2:
 analysis_name = sys.argv[1]
 run_paths = sys.argv[2:]
 
-colors = ['rgba(256,67,67,1)', 'rgba(256,156,67,1)', 'rgba(67,67,256,1)', 'rgba(67,256,67,1)']
+colors = ['rgba(256,67,67,1)', 'rgba(256,156,67,1)', 'rgba(67,67,256,1)',
+    'rgba(67,256,67,1)', 'rgba(256,67,256,1)']
 
 traces = []
 for i, run_path in enumerate(run_paths):
