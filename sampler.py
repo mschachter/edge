@@ -19,10 +19,9 @@ class Sampler(object):
 
             self.input = tf.placeholder(tf.float32, shape=[1, len(alphabet)])
             self.output = tf.placeholder(tf.float32, shape=[1, len(alphabet)])
-            self.bias = tf.placeholder(tf.float32, shape=[1])
 
-            next_state, logits = net.step(cur_state, self.sample_input)
-            self.prediction = tf.nn.softmax(logits*(1.0 + self.bias_var))
+            next_state, logits = net.step(cur_state, self.sample_input, cur_d_state)
+            self.prediction = tf.nn.softmax(logits)
             err = tf.nn.softmax_cross_entropy_with_logits(logits, self.output)
 
             next_d_state = net.gradient(err, next_state)
@@ -38,7 +37,10 @@ class Sampler(object):
         if net.uses_error:
             session.run(self.reset_d_state)
 
-    def predict_next(self):
+    def predict_next(self, sample_input):
+        prediction, _ = session.run([self.prediction, self.store_state],
+            feed_dict = {self.input = sample_input})
+        return prediction
 
     def sample(self, session, prime='Alice was ', n_sample = 100, bias = 0.0):
 
