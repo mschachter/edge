@@ -69,7 +69,7 @@ with graph.as_default():
     ## First we build the training graph
 
     # The network and it training state
-    with tf.name_scope('training') as scope:
+    with tf.name_scope('training'):
         net = Basic_Network(n_alphabet, hparams)
 
         # The input nodes
@@ -103,7 +103,7 @@ with graph.as_default():
         store_d_state = net.store_state_op(d_state, init_d_state)
 
     # The optimizer
-    with tf.name_scope('optimizer') as scope:
+    with tf.name_scope('optimizer'):
         t = tf.Variable(0, name= 't', trainable=False) # the step variable
         eta = tf.train.exponential_decay(10.0, t, 5000, 0.1, staircase=True)
         optimizer = tf.train.GradientDescentOptimizer(eta)
@@ -113,7 +113,7 @@ with graph.as_default():
 
     ## Now we build the validation graph using the same parameters
     ## but a different state since we don't want batches when validating
-    with tf.name_scope('validation') as scope:
+    with tf.name_scope('validation'):
         cur_valid_state = net.get_new_states(1)
         cur_valid_d_state = net.get_new_states(1)
 
@@ -132,6 +132,10 @@ with graph.as_default():
 
         reset_valid_d_state = net.reset_state_op(cur_valid_d_state)
         reset_valid_state = net.reset_state_op(cur_valid_state)
+
+    with tf.name_scope('sampler') as scope:
+        sampler = Sampler(net, alphabet)
+
 
     saver = tf.train.Saver()
 
@@ -197,8 +201,8 @@ with tf.Session(graph=graph) as session:
 
                 print 'Validation error:', mean_valid_error
 
-                # prime, sample_string = sampler.sample(session, bias = 2.0)
-                # print 'Sampling... ' + prime + '-->' + sample_string
+                prime, sample_string = sampler.sample(session, bias = 2.0)
+                print 'Sampling... ' + prime + '-->' + sample_string
 
     # save the model, params, and stats to the run dir
     model_file = os.path.join(run_path, 'model')
@@ -206,8 +210,8 @@ with tf.Session(graph=graph) as session:
 
 
 
-def write_dict_to_hdf5(file, dictionary):
-    with h5py.File(file, 'w') as f:
+def write_dict_to_hdf5(filename, dictionary):
+    with h5py.File(filename, 'w') as f:
         for key in dictionary:
             f.create_dataset(key, data=dictionary[key])
 

@@ -8,6 +8,7 @@ def string_to_alphabet_indices(string):
     counter = Counter(string)
     count_pairs = sorted(counter.items(), key=lambda x: -x[1])
     alphabet, _ = list(zip(*count_pairs))
+    alphabet = np.array(alphabet)
     alpha_ids = dict(zip(alphabet, range(len(alphabet))))
     indices = np.array(map(alpha_ids.get, string))
     return alphabet, indices
@@ -30,3 +31,13 @@ def file_to_datasets(filename, valid_fraction = .05, test_fraction = .05,
     test_data = text_inds[test_start:]
 
     return train_data, valid_data, test_data, alphabet
+
+
+def char_to_onehot(char, alphabet):
+    alpha_id = np.where(alphabet == char)[0][0]
+    return id_to_onehot(alpha_id, alphabet)
+
+def id_to_onehot(alpha_id, alphabet):
+    input_val = np.zeros([1, len(alphabet)], dtype=np.float32)
+    input_val[0, alpha_id] = 1
+    return input_val
