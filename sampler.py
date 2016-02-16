@@ -94,3 +94,18 @@ class Sampler(object):
             cur_input = next_input
 
         return prime, sample_string
+
+    def test_prediction_error(self, session, test_text):
+        session.run(self.reset_state)
+        if self.net.uses_error:
+            session.run(self.reset_d_state)
+
+        cur_input = textproc.id_to_onehot(test_text[0], self.alphabet)
+        mean_err = 0.0
+        for i in range(len(test_text) - 1):
+            self.predict_next(session, cur_input)
+            next_input = textproc.id_to_onehot(test_text[i+1], self.alphabet)
+            mean_err += self.compute_prediction_error(session, next_input)[0]
+            cur_input = next_input
+
+        return mean_err/(len(test_text)  -1)

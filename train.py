@@ -50,13 +50,11 @@ train_text, valid_text, test_text, alphabet = \
 n_alphabet = len(alphabet)
 
 n_train = len(train_text)
-n_valid = len(valid_text)
 
 n_batch = hparams['n_prop']
 n_prop = hparams['n_batch']
 
 train_input_generator = Input_Generator(train_text, alphabet, n_batch, n_prop)
-valid_input_generator = Input_Generator(valid_text, alphabet, 1, 1)
 
 n_unit = hparams['n_unit']
 
@@ -111,28 +109,6 @@ with graph.as_default():
         grads, _ = tf.clip_by_global_norm(grads, hparams['grad_clip_norm'])
         apply_grads = optimizer.apply_gradients(zip(grads, params), global_step=t)
 
-    ## Now we build the validation graph using the same parameters
-    ## but a different state since we don't want batches when validating
-    with tf.name_scope('validation'):
-        cur_valid_state = net.get_new_states(1)
-        cur_valid_d_state = net.get_new_states(1)
-
-        valid_input = tf.placeholder(tf.float32, shape=[1, n_alphabet])
-        valid_label = tf.placeholder(tf.float32, shape=[1, n_alphabet])
-
-        next_valid_state, logits = net.step(cur_valid_state, valid_input, cur_valid_d_state)
-
-        valid_err = tf.nn.softmax_cross_entropy_with_logits(logits, valid_label)
-
-        next_valid_d_state = net.gradient(valid_err, next_valid_state)
-
-
-        store_valid_state = net.store_state_op(next_valid_state, cur_valid_state)
-        store_valid_d_state = net.store_state_op(next_valid_d_state, cur_valid_d_state)
-
-        reset_valid_d_state = net.reset_state_op(cur_valid_d_state)
-        reset_valid_state = net.reset_state_op(cur_valid_state)
-
     with tf.name_scope('sampler') as scope:
         sampler = Sampler(net, alphabet)
 
@@ -178,26 +154,9 @@ with tf.Session(graph=graph) as session:
             print 'Average error at step', step, ':', mean_error, 'learning rate:', eta_val
             mean_error = 0.0
 
-
-
             if step % (summary_freq*10) == 0:
-                session.run(reset_valid_state)
-                if net.uses_error:
-                    session.run(reset_valid_d_state)
 
-                mean_valid_error = 0
-                for i in range(n_valid):
-                    window = valid_input_generator.next_window()
-                    feed_dict = {valid_input: window[0], valid_label:window[1]}
-                    to_compute = [valid_err, store_valid_state]
-                    if net.uses_error:
-                        to_compute.append(store_valid_d_state)
-                    valid_err_val = session.run(to_compute, feed_dict)[0]
-
-                    mean_valid_error += valid_err_val[0]
-                mean_valid_error /= n_valid
-
-                valid_error_hist.append((step, mean_valid_error))
+                mean_valid_error = sampler.test_prediction_error(session, valid_text)
 
                 print 'Validation error:', mean_valid_error
 
@@ -211,9 +170,9 @@ with tf.Session(graph=graph) as session:
 
 
 def write_dict_to_hdf5(filename, dictionary):
-    with h5py.File(filename, 'w') as f:
+    with h5py.File(filename, 'w') as hdf5_file:
         for key in dictionary:
-            f.create_dataset(key, data=dictionary[key])
+            hdf5_file.create_dataset(key, data=dictionary[key])
 
 train_error_hist = np.array(zip(*train_error_hist))
 valid_error_hist = np.array(zip(*valid_error_hist))
