@@ -1,2 +1,2 @@
-run_name: 'basic_text_edsrnn'
+run_name: 'edsrnn-text'
 rnn_type: 'EDSRNN'

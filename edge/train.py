@@ -48,6 +48,8 @@ data_path = os.path.join(hparams['data_dir'], hparams['data_file'])
 train_text, valid_text, test_text, alphabet = \
     text_proc.file_to_datasets(data_path)
 n_alphabet = len(alphabet)
+hparams['n_alphabet'] = n_alphabet
+
 
 n_train = len(train_text)
 
@@ -64,12 +66,12 @@ n_unit = hparams['n_unit']
 graph = tf.Graph()
 with graph.as_default():
 
+    net = Basic_Network(n_alphabet, hparams)
+
     ## First we build the training graph
 
     # The network and it training state
     with tf.name_scope('training'):
-        net = Basic_Network(n_alphabet, hparams)
-
         # The input nodes
         xs = [tf.placeholder(tf.float32, shape=[n_batch, n_alphabet]) for
             _ in xrange(n_prop + 1)]
@@ -103,8 +105,14 @@ with graph.as_default():
     # The optimizer
     with tf.name_scope('optimizer'):
         t = tf.Variable(0, name= 't', trainable=False) # the step variable
-        eta = tf.train.exponential_decay(10.0, t, 5000, 0.1, staircase=True)
-        optimizer = tf.train.GradientDescentOptimizer(eta)
+
+        if hparams['opt_algorithm'] == 'adam':
+            eta = tf.train.exponential_decay(.0001, t, 5000, 0.1, staircase=True)
+            optimizer = tf.train.AdamOptimizer(learning_rate=eta)
+        elif hparams['opt_algorithm'] == 'annealed_sgd':
+            eta = tf.train.exponential_decay(1.0, t, 5000, 0.1, staircase=True)
+            optimizer = tf.train.GradientDescentOptimizer(eta)
+
         grads, params = zip(*optimizer.compute_gradients(train_err))
         grads, _ = tf.clip_by_global_norm(grads, hparams['grad_clip_norm'])
         apply_grads = optimizer.apply_gradients(zip(grads, params), global_step=t)
@@ -144,6 +152,12 @@ with tf.Session(graph=graph) as session:
             to_compute.append(store_d_state)
         error_val, eta_val = session.run(to_compute, feed_dict=feed_dict)[:2]
 
+        # print init_train_state[0].eval()
+        # print '===================='
+        # print net.logit_layer.W.eval()
+        # print '--------------------'
+
+
         mean_error += error_val
 
         if step % summary_freq == 0 and step > 0:
@@ -164,7 +178,7 @@ with tf.Session(graph=graph) as session:
                 print 'Sampling... ' + prime + '-->' + sample_string
 
     # save the model, params, and stats to the run dir
-    model_file = os.path.join(run_path, 'model')
+    model_file = os.path.join(run_path, 'model.ckpt')
     saver.save(session, model_file)
 
 
@@ -177,9 +191,9 @@ def write_dict_to_hdf5(filename, dictionary):
 train_error_hist = np.array(zip(*train_error_hist))
 valid_error_hist = np.array(zip(*valid_error_hist))
 stats = {'train_error_hist': train_error_hist, 'valid_error_hist': valid_error_hist}
-stats_file = os.path.join(run_path, 'stats')
+stats_file = os.path.join(run_path, 'stats.hdf5')
 write_dict_to_hdf5(stats_file, stats)
 
-params_file = os.path.join(run_path, 'params')
+params_file = os.path.join(run_path, 'params.yaml')
 with open(params_file, 'w') as f:
     yaml.dump(hparams, f)

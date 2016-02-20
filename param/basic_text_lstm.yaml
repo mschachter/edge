@@ -1,2 +1,2 @@
-run_name: 'basic_text_lstm_o_gate'
+run_name: 'lstm_text'
 rnn_type: 'LSTM'

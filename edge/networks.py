@@ -14,6 +14,9 @@ class Basic_Network(object):
         elif hparams['rnn_type'] == 'LSTM':
             with tf.name_scope('lstm_layer') as scope:
                 self.rnn_layer = layers.LSTM_Layer(n_input, n_unit)
+        elif hparams['rnn_type'] == 'GRU':
+            with tf.name_scope('gru_layer') as scope:
+                self.rnn_layer = layers.GRU_Layer(n_input, n_unit)
         elif hparams['rnn_type'] == 'EDSRNN':
             with tf.name_scope('edsrnn_layer') as scope:
                 self.rnn_layer = layers.EDSRNN_Layer(n_input, n_unit)
