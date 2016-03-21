@@ -1,3 +1,4 @@
+from __future__ import division
 import tensorflow as tf
 import yaml
 import time
@@ -49,12 +50,13 @@ train_text, valid_text, test_text, alphabet = \
     text_proc.file_to_datasets(data_path)
 n_alphabet = len(alphabet)
 hparams['n_alphabet'] = n_alphabet
+hparams['alphabet'] = alphabet.tolist()
 
 
 n_train = len(train_text)
 
-n_batch = hparams['n_prop']
-n_prop = hparams['n_batch']
+n_batch = hparams['n_batch']
+n_prop = hparams['n_prop']
 
 train_input_generator = Input_Generator(train_text, alphabet, n_batch, n_prop)
 
@@ -86,8 +88,13 @@ with graph.as_default():
 
         init_d_state = net.get_new_states(n_batch)
         d_state = init_d_state
+        predictions = []
         for (x_input, x_label) in zip(x_inputs, x_labels):
             train_state, logits = net.step(train_state, x_input, d_state)
+
+            # # TODO this is debug
+            # prediction = tf.nn.softmax(logits)
+            # predictions.append(prediction)
 
             err = tf.nn.softmax_cross_entropy_with_logits(logits, x_label)
             errs.append(err)
@@ -102,12 +109,15 @@ with graph.as_default():
         store_train_state = net.store_state_op(train_state, init_train_state)
         store_d_state = net.store_state_op(d_state, init_d_state)
 
+        reset_train_state = net.reset_state_op(init_train_state)
+        reset_train_d_state = net.reset_state_op(init_d_state)
+
     # The optimizer
     with tf.name_scope('optimizer'):
         t = tf.Variable(0, name= 't', trainable=False) # the step variable
 
         if hparams['opt_algorithm'] == 'adam':
-            eta = tf.train.exponential_decay(.0001, t, 5000, 0.1, staircase=True)
+            eta = tf.train.exponential_decay(.008, t, 2000, 0.5, staircase=True)
             optimizer = tf.train.AdamOptimizer(learning_rate=eta)
         elif hparams['opt_algorithm'] == 'annealed_sgd':
             eta = tf.train.exponential_decay(1.0, t, 5000, 0.1, staircase=True)
@@ -141,6 +151,13 @@ with tf.Session(graph=graph) as session:
 
     for step in range(n_train_steps):
 
+        reset_rate = n_prop/hparams['train_state_reset_rate']
+        if np.random.poisson(reset_rate) > 0:
+            print 'State reset!'
+            session.run([reset_train_state])
+            if net.uses_error:
+                session.run([reset_train_d_state])
+
         # Set up input value -> input var mapping
         window = train_input_generator.next_window()
         feed_dict = dict()
@@ -150,13 +167,19 @@ with tf.Session(graph=graph) as session:
         to_compute = [train_err, eta, apply_grads, store_train_state]
         if net.uses_error:
             to_compute.append(store_d_state)
+
+        # if step > 999:
+        #     to_compute += predictions
+        #     results = session.run(to_compute, feed_dict=feed_dict)
+        #     predictions = results[4:]
+        #     import ipdb; ipdb.set_trace()
+
         error_val, eta_val = session.run(to_compute, feed_dict=feed_dict)[:2]
 
         # print init_train_state[0].eval()
         # print '===================='
         # print net.logit_layer.W.eval()
         # print '--------------------'
-
 
         mean_error += error_val
 
@@ -171,6 +194,8 @@ with tf.Session(graph=graph) as session:
             if step % (summary_freq*10) == 0:
 
                 mean_valid_error = sampler.test_prediction_error(session, valid_text)
+
+                valid_error_hist.append((step, mean_valid_error))
 
                 print 'Validation error:', mean_valid_error
 

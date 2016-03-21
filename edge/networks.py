@@ -10,20 +10,24 @@ class Basic_Network(object):
 
         if hparams['rnn_type'] == 'SRNN':
             with tf.name_scope('srnn_layer') as scope:
-                self.rnn_layer = layers.SRNN_Layer(n_input, n_unit)
+                self.rnn_layer = layers.SRNN_Layer(n_input, n_unit, hparams)
         elif hparams['rnn_type'] == 'LSTM':
             with tf.name_scope('lstm_layer') as scope:
-                self.rnn_layer = layers.LSTM_Layer(n_input, n_unit)
+                self.rnn_layer = layers.LSTM_Layer(n_input, n_unit, hparams)
         elif hparams['rnn_type'] == 'GRU':
             with tf.name_scope('gru_layer') as scope:
-                self.rnn_layer = layers.GRU_Layer(n_input, n_unit)
+                self.rnn_layer = layers.GRU_Layer(n_input, n_unit, hparams)
         elif hparams['rnn_type'] == 'EDSRNN':
             with tf.name_scope('edsrnn_layer') as scope:
-                self.rnn_layer = layers.EDSRNN_Layer(n_input, n_unit)
+                self.rnn_layer = layers.EDSRNN_Layer(n_input, n_unit, hparams)
+                self.uses_error = True
+        elif hparams['rnn_type'] == 'EDGRU':
+            with tf.name_scope('edsrnn_layer') as scope:
+                self.rnn_layer = layers.EDGRU_Layer(n_input, n_unit, hparams)
                 self.uses_error = True
 
         with tf.name_scope('logit_layer') as scope:
-            self.logit_layer = layers.Linear_Layer(n_unit, n_input)
+            self.logit_layer = layers.Linear_Layer(n_unit, n_input, hparams)
 
 
     def step(self, state, x_input, *d_state):

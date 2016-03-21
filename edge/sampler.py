@@ -61,7 +61,7 @@ class Sampler(object):
             self.next_state[0]: cur_state_val})[0]
         return err
 
-    def sample(self, session, prime='alice was ', n_sample = 100, bias = 0.0):
+    def sample(self, session, prime='alice was ', n_sample = 500, bias = 0.0):
 
         session.run(self.reset_state)
         if self.net.uses_error:
@@ -103,7 +103,8 @@ class Sampler(object):
         cur_input = textproc.id_to_onehot(test_text[0], self.alphabet)
         mean_err = 0.0
         for i in range(len(test_text) - 1):
-            self.predict_next(session, cur_input)
+            prediction = self.predict_next(session, cur_input)
+            # import ipdb; ipdb.set_trace()
             next_input = textproc.id_to_onehot(test_text[i+1], self.alphabet)
             mean_err += self.compute_prediction_error(session, next_input)[0]
             cur_input = next_input
