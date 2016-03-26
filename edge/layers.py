@@ -36,8 +36,12 @@ class SRNN_Layer(object):
 
     def step(self, state, x, *d_state):
         """Updates returns the state updated by input x"""
+        print('state=')
+        print(state)
         h = state[0]
-        h = tf.tanh(tf.matmul(x, self.W) + tf.matmul(h, self.R) + self.b)
+        xxx = tf.matmul(x, self.W)
+        hhh = tf.matmul(h, self.R)
+        h = tf.tanh(xxx + hhh + self.b)
 
         return h,
 

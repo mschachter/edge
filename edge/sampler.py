@@ -2,6 +2,7 @@ import tensorflow as tf
 import numpy as np
 import util.text_processing as textproc
 
+
 def sample_dist(dist, bias):
     logits = np.log(dist)
     dist = np.exp((1 + bias)*logits)
