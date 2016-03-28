@@ -1,7 +1,9 @@
 from __future__ import division
 
+from copy import deepcopy
+
 import numpy as np
-import sys
+import matplotlib.pyplot as plt
 
 import tensorflow as tf
 
@@ -49,20 +51,45 @@ sys.exit(0)
 np.random.seed(123456)
 
 n_in = 2
-n_hid = 3
+n_hid_data = 3
+n_hid = 10
 n_out = 1
-t_in = 10
+t_in = 1000
 
 # the "memory" of the network, how many time steps BPTT is run for
-t_mem = 2
+t_mem = 20
 
 # set the time length per batch (the effective
 assert t_in % t_mem == 0
 n_samps = int(t_in / t_mem)
 
-# create some fake data
-Us,Xs,Ys = create_sample_data(n_in, n_hid, n_out, t_in, n_samps, segment_U=True)
-hparams = {'rnn_type':'SRNN', 'opt_algorithm':'annealed_sgd', 'n_train_steps':3, 'n_unit':n_hid}
+# create some fake data for training
+Utrain, Xtrain, Ytrain = create_sample_data(n_in, n_hid_data, n_out, t_in, n_samps, segment_U=True)
+
+"""
+plt.figure()
+
+ax = plt.subplot(1, 2, 1)
+plt.hist(Utrain.ravel(), bins=25, color='r', alpha=0.7)
+plt.axis('tight')
+plt.title('Distribution of Inputs')
+
+ax = plt.subplot(1, 2, 2)
+plt.hist(Ytrain.ravel(), bins=25, color='b', alpha=0.7)
+plt.axis('tight')
+plt.title('Distribution of Outputs')
+
+plt.show()
+"""
+
+# create some fake data for validation
+t_in_test = 100
+n_samps_test = int(t_in_test / t_mem)
+Utest,Xtest,Ytest = create_sample_data(n_in, n_hid_data, n_out, t_in_test, n_samps_test, segment_U=True)
+
+hparams = {'rnn_type':'SRNN', 'opt_algorithm':'annealed_sgd',
+           'n_train_steps':45, 'n_unit':n_hid, 'dropout':{'R':0.5, 'W':0.0},
+           'lambda2':1e-1}
 
 # build the graph that will execute for each batch
 graph = tf.Graph()
@@ -81,10 +108,18 @@ with graph.as_default():
 
         # the initial state placeholder, contains the initial state used at the beginning of a batch
         h = tf.placeholder(tf.float32, shape=[1, n_hid])
+
+        # placeholder for whether or not to use dropout
+        p_dropout = tf.placeholder(tf.float32)
+
         hnext = h
 
+        lambda2_val = hparams['lambda2']
+        l2_cost = net.l2_W(lambda2_val) + net.l2_R(lambda2_val) + net.l2_Wout(lambda2_val)
+
         # The forward propagation graph
-        errs = list()
+        train_errs = list()
+        train_preds = list()
         for t in range(t_mem):
 
             # construct the input vector at time t by slicing the input placeholder U, do the same for Y
@@ -93,20 +128,19 @@ with graph.as_default():
 
             # create an op to move the network state forward one time step, given the input
             # vector u and previous hidden state h
-            print('t=%d' % t)
             (hnext,), yhat = net.step((hnext,), u)
 
+            # save the prediction op for this time step
+            train_preds.append(yhat)
+
             # compute the cost at time t
-            err = tf.reduce_mean(tf.squeeze(tf.square(y - yhat)))
-            errs.append(tf.expand_dims(err, 0))
+            mse = tf.reduce_mean(tf.squeeze(tf.square(y - yhat)))
+            err = mse + l2_cost
+            train_errs.append(tf.expand_dims(err, 0))
 
         # compute the overall training error, the mean of the mean square error at each time point
-        print('errs=')
-        print(errs)
-        errs = tf.concat(0, errs)
-        print('errs2=')
-        print(errs)
-        train_err = tf.reduce_mean(errs)
+        train_errs = tf.concat(0, train_errs)
+        net_train_err = tf.reduce_mean(train_errs)
 
     # The optimizer
     with tf.name_scope('optimizer'):
@@ -118,10 +152,10 @@ with graph.as_default():
             optimizer = tf.train.AdamOptimizer(learning_rate=eta)
 
         elif hparams['opt_algorithm'] == 'annealed_sgd':
-            eta = tf.train.exponential_decay(1.0, t, 5000, 0.1, staircase=True)
+            eta = tf.train.exponential_decay(5e-2, t, 5000, 0.1, staircase=True)
             optimizer = tf.train.GradientDescentOptimizer(eta)
 
-        grads, params = zip(*optimizer.compute_gradients(train_err))
+        grads, params = zip(*optimizer.compute_gradients(net_train_err))
 
         # grads, _ = tf.clip_by_global_norm(grads, hparams['grad_clip_norm'])
 
@@ -132,9 +166,12 @@ summary_freq = 100
 mean_error = 0.0
 
 # create a random initial state to start with
-h0 = np.random.randn(n_hid) * 1e-3
-h0 = h0.reshape([1, n_hid])
+h0_orig = np.random.randn(n_hid) * 1e-3
+h0_orig = h0_orig.reshape([1, n_hid])
+h0 = h0_orig
 
+train_errs_per_epoch = list()
+test_errs_per_epoch = list()
 with tf.Session(graph=graph) as session:
 
     tf.initialize_all_variables().run()
@@ -142,24 +179,71 @@ with tf.Session(graph=graph) as session:
     # for each training iteration
     for step in range(n_train_steps):
 
+        h0_start = deepcopy(h0)
+        
+        train_errs_per_samp = list()
+        test_errs_per_samp = list()
+
         # train on each minibatch
         for k in range(n_samps):
-            print("step=%d, k=%d" % (step, k))
             # put the input and output matrices in the feed dictionary for this minibatch
-            Uk = Us[k, :, :]
-            Yk = Ys[k, :, :]
-            print('Uk.shape=' + str(Uk.shape))
-            print('Yk.shape=' + str(Yk.shape))
-            print("h0.shape=" + str(h0.shape))
+            Uk = Utrain[k, :, :]
+            Yk = Ytrain[k, :, :]
+            # print('Uk.shape=' + str(Uk.shape))
+            # print('Yk.shape=' + str(Yk.shape))
+            # print("h0.shape=" + str(h0.shape))
             feed_dict = {U:Uk, Y:Yk, h:h0}
 
             # run the session to train the model for this minibatch
-            to_compute = [train_err, eta, hnext, apply_grads]
-            error_val, eta_val, hnext_val = session.run(to_compute, feed_dict=feed_dict)[:3]
+            to_compute = [net_train_err, eta, hnext, apply_grads]
+            train_error_val, eta_val, hnext_val = session.run(to_compute, feed_dict=feed_dict)[:3]
 
             # get the last hidden state value to use on the next minibatch
             h0 = hnext_val
 
-            print('iter=%d, batch %d: eta=%0.6f, err=%0.6f' % (step, k, eta_val, error_val))
-            print('hnext_val=')
-            print(hnext_val)
+            print('iter=%d, batch %d: eta=%0.6f, err=%0.6f' % (step, k, eta_val, train_error_val))
+            train_errs_per_samp.append(train_error_val)
+            # print('hnext_val=')
+            # print(hnext_val)
+
+        # predict on the test set
+        h0 = h0_start
+        for k in range(n_samps_test):
+            Uk = Utest[k, :, :]
+            Yk = Ytest[k, :, :]            
+            feed_dict = {U:Uk, Y:Yk, h:h0}
+
+            to_compute = [net_train_err, hnext]
+            test_error_val, hnext_val = session.run(to_compute, feed_dict=feed_dict)
+            test_errs_per_samp.append(test_error_val)
+            h0 = hnext_val
+            
+        train_errs_per_epoch.append(train_errs_per_samp)
+        test_errs_per_epoch.append(test_errs_per_samp)
+
+    # plot the training and test error
+    train_errs_per_epoch = np.array(train_errs_per_epoch)
+    test_errs_per_epoch = np.array(test_errs_per_epoch)
+
+    print('train_errs_per_epoch.shape=' + str(train_errs_per_epoch.shape))
+    print('test_errs_per_epoch.shape=' + str(test_errs_per_epoch.shape))
+
+    plt.figure()
+    
+    ax = plt.subplot(1, 2, 1)
+    plt.errorbar(range(n_train_steps), train_errs_per_epoch.mean(axis=1), yerr=train_errs_per_epoch.std(axis=1, ddof=1),
+                 linewidth=4.0, c='r', alpha=0.7, elinewidth=2.0, ecolor='k')
+    plt.axis('tight')
+    plt.xlabel('Epoch')
+    plt.ylabel('Training Error')
+    plt.title('Training Error')
+    
+    ax = plt.subplot(1, 2, 2)
+    plt.errorbar(range(n_train_steps), test_errs_per_epoch.mean(axis=1), yerr=test_errs_per_epoch.std(axis=1, ddof=1),
+                 linewidth=4.0, c='b', alpha=0.7, elinewidth=2.0, ecolor='k')
+    plt.axis('tight')
+    plt.xlabel('Epoch')
+    plt.ylabel('Test Error')
+    plt.title('Test Error')
+
+    plt.show()

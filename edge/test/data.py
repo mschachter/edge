@@ -1,6 +1,24 @@
 import numpy as np
 
 
+def rescale_matrix(W, spectral_radius=1.0):
+    """ Rescale the given matrix W (in place) until it's spectral radius is less than or equal to the given value. """
+
+    max_decrease_factor = 0.90
+    min_decrease_factor = 0.99
+    evals,evecs = np.linalg.eig(W)
+    initial_eigenvalue = np.max(np.abs(evals))
+    max_eigenvalue = initial_eigenvalue
+    while max_eigenvalue > spectral_radius:
+        #inverse distance to 1.0, a number between 0.0 (far) and 1.0 (close)
+        d = 1.0 - ((max_eigenvalue - spectral_radius) / abs(initial_eigenvalue - spectral_radius))
+
+        decrease_factor = max_decrease_factor + d*(min_decrease_factor-max_decrease_factor)
+        W *= decrease_factor
+        evals,evecs = np.linalg.eig(W)
+        max_eigenvalue = np.max(np.abs(evals))
+
+
 def create_sample_data(ninputs, nhidden, nout, nt, nsamples, segment_U=False):
 
     # create input time series
@@ -13,13 +31,19 @@ def create_sample_data(ninputs, nhidden, nout, nt, nsamples, segment_U=False):
     # create an input weight matrix
     Win = np.random.randn(nhidden, ninputs)
 
-    # create a topologically organized recurrent weight matrix and bias
+    # create a recurrent weight matrix and bias
     W = np.random.randn(nhidden, nhidden)
     b = np.random.randn(nhidden)
 
+    # adjust the spectral radius of the weight matrix
+    rescale_matrix(W, 0.95)
+
     # create an output weight matrix and bias
-    Wout = np.random.randn(nout, nhidden)
+    Wout = np.random.randn(nout, nhidden)*1e-1
+    Wout[Wout < np.percentile(Wout, 10)] = 0.
     bout = np.random.randn(nout)
+    # get rid of negative bias in output bias
+    bout[bout < np.percentile(bout, 10)] = 0.
 
     # random initial state
     np.random.seed(123456)

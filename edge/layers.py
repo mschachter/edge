@@ -16,6 +16,8 @@ class Linear_Layer(object):
         self.W = tf.Variable(init_weights(n_input, n_output, hparams), name= 'W')
         self.b = tf.Variable(tf.zeros([n_output]), name = 'b')
 
+
+
     def output(self, x):
         return tf.nn.xw_plus_b(x, self.W, self.b)
 
@@ -30,24 +32,39 @@ class SRNN_Layer(object):
         self.R = tf.Variable(init_weights(n_unit, n_unit, hparams), name = 'R')
         self.b = tf.Variable(tf.zeros([1, n_unit]), name = 'b')
 
+        self.dropout = {'W':0, 'R':0}
+
+        if 'dropout' in hparams:
+            if np.isscalar(hparams['dropout']):
+                self.dropout['W'] = hparams['dropout']
+                self.dropout['R'] = hparams['dropout']
+            elif type(hparams['dropout']) is dict:
+                assert 'W' in hparams['dropout']
+                assert 'R' in hparams['dropout']
+                self.dropout = hparams['dropout']
+
     def get_new_states(self, n_state):
         new_h = tf.Variable(tf.zeros([n_state, self.n_unit]), trainable=False, name = 'h')
         return new_h,
 
-    def step(self, state, x, *d_state):
+    def step(self, state, x, *d_state, **kwargs):
         """Updates returns the state updated by input x"""
-        print('state=')
-        print(state)
         h = state[0]
-        xxx = tf.matmul(x, self.W)
-        hhh = tf.matmul(h, self.R)
+        W = self.W
+        R = self.R
+        if self.dropout['W'] > 0:
+            W = tf.nn.dropout(W, self.dropout['W'])
+        if self.dropout['R'] > 0:
+            R = tf.nn.dropout(R, self.dropout['R'])
+
+        xxx = tf.matmul(x, W)
+        hhh = tf.matmul(h, R)
         h = tf.tanh(xxx + hhh + self.b)
 
         return h,
 
     def gradient(self, error, state):
         return tf.gradients(error, state[0])
-
 
 class EDSRNN_Layer(SRNN_Layer):
 

@@ -1,3 +1,5 @@
+import numpy as np
+
 import tensorflow as tf
 
 import layers
@@ -33,8 +35,8 @@ class Basic_Network(object):
         if hparams['rnn_type'].startswith('ED'):
             self.uses_error = True
 
-    def step(self, state, x_input, *d_state):
-        state = self.rnn_layer.step(state, x_input, *d_state)
+    def step(self, state, x_input, *d_state, **kwargs):
+        state = self.rnn_layer.step(state, x_input, *d_state, **kwargs)
         output = self.output_layer.output(state[0])
         return state, output
 
@@ -54,3 +56,12 @@ class Basic_Network(object):
         """ Resets the network state to zero """
         reset_ops  = [state_var.assign(tf.zeros(state_var.get_shape())) for state_var in state]
         return tf.group(*reset_ops)
+
+    def l2_W(self, lambda_val=1.):
+        return lambda_val*tf.reduce_mean(tf.square(self.rnn_layer.W))
+
+    def l2_R(self, lambda_val=1.):
+        return lambda_val*(tf.reduce_mean(tf.square(self.rnn_layer.R)) + tf.reduce_mean(tf.square(self.rnn_layer.b)))
+
+    def l2_Wout(self, lambda_val=1.):
+        return lambda_val*(tf.reduce_mean(tf.square(self.output_layer.W)) + tf.reduce_mean(tf.square(self.output_layer.b)))
