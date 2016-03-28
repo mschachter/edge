@@ -19,7 +19,7 @@ class Basic_Network(object):
         n_unit = hparams['n_unit']
 
         if n_output is None:
-            n_output = n_input
+            n_output = 1
 
         # construct the recurrent layer
         assert hparams['rnn_type'] in NET_TYPES

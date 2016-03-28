@@ -52,7 +52,7 @@ np.random.seed(123456)
 
 n_in = 2
 n_hid_data = 3
-n_hid = 30
+n_hid = 3
 n_out = 1
 t_in = 2000
 
@@ -64,7 +64,7 @@ assert t_in % t_mem == 0
 n_samps = int(t_in / t_mem)
 
 # create some fake data for training
-Utrain, Xtrain, Ytrain = create_sample_data(n_in, n_hid_data, n_out, t_in, n_samps, segment_U=True)
+Utrain, Xtrain, Ytrain, sample_params = create_sample_data(n_in, n_hid_data, n_out, t_in, n_samps, segment_U=True)
 
 """
 plt.figure()
@@ -85,7 +85,12 @@ plt.show()
 # create some fake data for validation
 t_in_test = 100
 n_samps_test = int(t_in_test / t_mem)
-Utest,Xtest,Ytest = create_sample_data(n_in, n_hid_data, n_out, t_in_test, n_samps_test, segment_U=True)
+Utest,Xtest,Ytest,sample_params2 = create_sample_data(n_in, n_hid_data, n_out, t_in_test, n_samps_test, segment_U=True,
+                                                      Win=sample_params['Win'],
+                                                      W=sample_params['W'],
+                                                      b=sample_params['b'],
+                                                      Wout=sample_params['Wout'],
+                                                      bout=sample_params['bout'])
 
 hparams = {'rnn_type':'SRNN', 'opt_algorithm':'annealed_sgd',
            'n_train_steps':60, 'n_unit':n_hid, 'dropout':{'R':0.0, 'W':0.0},

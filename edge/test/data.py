@@ -19,7 +19,11 @@ def rescale_matrix(W, spectral_radius=1.0):
         max_eigenvalue = np.max(np.abs(evals))
 
 
-def create_sample_data(ninputs, nhidden, nout, nt, nsamples, segment_U=False, zscore_y=True):
+def create_sample_data(ninputs, nhidden, nout, nt, nsamples,
+                       segment_U=False, zscore_y=True,
+                       Win=None, W=None, b=None, Wout=None, bout=None, x0=None):
+
+    np.random.seed(123456)
 
     # create input time series
     U = np.random.randn(nt, ninputs)
@@ -29,25 +33,31 @@ def create_sample_data(ninputs, nhidden, nout, nt, nsamples, segment_U=False, zs
     # U = np.dot(U, A)
 
     # create an input weight matrix
-    Win = np.random.randn(nhidden, ninputs)
+    if Win is None:
+        Win = np.random.randn(nhidden, ninputs)
 
     # create a recurrent weight matrix and bias
-    W = np.random.randn(nhidden, nhidden)
-    b = np.random.randn(nhidden)
+    if W is None:
+        W = np.random.randn(nhidden, nhidden)
+    if b is None:
+        b = np.random.randn(nhidden)
 
     # adjust the spectral radius of the weight matrix
     rescale_matrix(W, 0.95)
 
     # create an output weight matrix and bias
-    Wout = np.random.randn(nout, nhidden)*1e-1
-    Wout[Wout < np.percentile(Wout, 10)] = 0.
-    bout = np.random.randn(nout)
-    # get rid of negative bias in output bias
-    bout[bout < np.percentile(bout, 10)] = 0.
+    if Wout is None:
+        Wout = np.random.randn(nout, nhidden)*1e-1
+        Wout[Wout < np.percentile(Wout, 10)] = 0.
+
+    if bout is None:
+        bout = np.random.randn(nout)
+        # get rid of negative bias in output bias
+        bout[bout < np.percentile(bout, 10)] = 0.
 
     # random initial state
-    np.random.seed(123456)
-    x0 = np.random.randn(nhidden)
+    if x0 is None:
+        x0 = np.random.randn(nhidden)
 
     # create an output matrix
     nt_per_sample = nt / nsamples
@@ -73,7 +83,9 @@ def create_sample_data(ninputs, nhidden, nout, nt, nsamples, segment_U=False, zs
         Xs,Ys = run_network(U, Win, W, b, Wout, bout, x0)
         Xs = Xs[1:, :]
 
-    return Us, Xs, Ys
+    params = {'Win':Win, 'W':W, 'b':b, 'Wout':Wout, 'bout':bout, 'x0':x0}
+
+    return Us, Xs, Ys, params
 
 
 def run_network(U, Win, W, bhid, Wout, bout, x0, activation=np.tanh):
