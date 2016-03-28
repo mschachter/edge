@@ -19,7 +19,7 @@ def rescale_matrix(W, spectral_radius=1.0):
         max_eigenvalue = np.max(np.abs(evals))
 
 
-def create_sample_data(ninputs, nhidden, nout, nt, nsamples, segment_U=False):
+def create_sample_data(ninputs, nhidden, nout, nt, nsamples, segment_U=False, zscore_y=True):
 
     # create input time series
     U = np.random.randn(nt, ninputs)

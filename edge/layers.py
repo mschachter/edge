@@ -16,10 +16,9 @@ class Linear_Layer(object):
         self.W = tf.Variable(init_weights(n_input, n_output, hparams), name= 'W')
         self.b = tf.Variable(tf.zeros([n_output]), name = 'b')
 
-
-
     def output(self, x):
-        return tf.nn.xw_plus_b(x, self.W, self.b)
+        v = tf.nn.xw_plus_b(x, self.W, self.b)
+        return v
 
 
 class SRNN_Layer(object):
