@@ -92,14 +92,18 @@ with graph.as_default():
         for (x_input, x_label) in zip(x_inputs, x_labels):
             train_state, logits = net.step(train_state, x_input, d_state)
 
-            # # TODO this is debug
-            # prediction = tf.nn.softmax(logits)
-            # predictions.append(prediction)
 
-            err = tf.nn.softmax_cross_entropy_with_logits(logits, x_label)
-            errs.append(err)
+            p_next = tf.nn.softmax(logits)
+            entropy = -tf.reduce_sum(p_next*tf.log(p_next), 1)
 
-            d_state = net.gradient(err, train_state)
+            cross_entropy = tf.nn.softmax_cross_entropy_with_logits(logits, x_label)
+            errs.append(cross_entropy)
+
+            unexpected_entropy = entropy - cross_entropy
+
+            d_state = net.gradient(cross_entropy, train_state)
+
+
 
 
         train_err = tf.reduce_mean(tf.concat(0, errs))

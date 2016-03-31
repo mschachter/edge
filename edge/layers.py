@@ -50,6 +50,8 @@ class EDSRNN_Layer(SRNN_Layer):
             + tf.matmul(dh, self.E) + self.b)
         return h
 
+
+
 class GRU_Layer(object):
     def __init__(self, n_input, n_unit, hparams):
         self.n_input = n_input
