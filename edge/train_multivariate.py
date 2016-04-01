@@ -34,32 +34,32 @@ class MultivariateRNNTrainer(object):
         with self.graph.as_default():
 
             # construct the RNN
-            self.net = Basic_Network(n_in, hparams, n_output=n_out)
+            self.net = Basic_Network(self.hparams['n_in'], self.hparams, n_output=self.hparams['n_out'])
 
             with tf.name_scope('training'):
 
                 # the input placeholder, contains the entire multivariate input time series for a batch
-                U = tf.placeholder(tf.float32, shape=[t_mem, n_in])
+                U = tf.placeholder(tf.float32, shape=[self.hparams['t_mem'], self.hparams['n_in']])
 
                 # the output placeholder, contains the desired multivariate output time series for a batch
-                Y = tf.placeholder(tf.float32, shape=[t_mem, n_out])
+                Y = tf.placeholder(tf.float32, shape=[self.hparams['t_mem'], self.hparams['n_out']])
 
                 # the initial state placeholder, contains the initial state used at the beginning of a batch
-                h = tf.placeholder(tf.float32, shape=[1, n_hid])
+                h = tf.placeholder(tf.float32, shape=[1, self.hparams['n_unit']])
 
                 hnext = h
 
-                lambda2_val = hparams['lambda2']
+                lambda2_val = self.hparams['lambda2']
                 l2_cost = self.net.l2_W(lambda2_val) + self.net.l2_R(lambda2_val) + self.net.l2_Wout(lambda2_val)
 
                 # The forward propagation graph
                 net_err_list = list()
                 net_preds = list()
-                for t in range(t_mem):
+                for t in range(self.hparams['t_mem']):
 
                     # construct the input vector at time t by slicing the input placeholder U, do the same for Y
-                    u = tf.slice(U, [t, 0], [1, n_in])
-                    y = tf.slice(Y, [t, 0], [1, n_out])
+                    u = tf.slice(U, [t, 0], [1, self.hparams['n_in']])
+                    y = tf.slice(Y, [t, 0], [1, self.hparams['n_out']])
 
                     # create an op to move the network state forward one time step, given the input
                     # vector u and previous hidden state h
@@ -83,11 +83,11 @@ class MultivariateRNNTrainer(object):
                 t = tf.Variable(0, name= 't', trainable=False) # the step variable
                 eta = None
 
-                if hparams['opt_algorithm'] == 'adam':
+                if self.hparams['opt_algorithm'] == 'adam':
                     eta = tf.train.exponential_decay(.008, t, 2000, 0.5, staircase=True)
                     self.optimizer = tf.train.AdamOptimizer(learning_rate=eta)
 
-                elif hparams['opt_algorithm'] == 'annealed_sgd':
+                elif self.hparams['opt_algorithm'] == 'annealed_sgd':
                     eta = tf.train.exponential_decay(5e-2, t, 5000, 0.1, staircase=True)
                     self.optimizer = tf.train.GradientDescentOptimizer(eta)
 
@@ -104,10 +104,12 @@ class MultivariateRNNTrainer(object):
     def train(self, Utrain, Ytrain, Utest, Ytest):
 
         n_train_steps = self.hparams['n_train_steps']
+        n_samps = Utrain.shape[0]
+        assert Ytrain.shape[0] == n_samps
 
         # create a random initial state to start with
-        h0_orig = np.random.randn(n_hid) * 1e-3
-        h0_orig = h0_orig.reshape([1, n_hid])
+        h0_orig = np.random.randn(self.hparams['n_unit']) * 1e-3
+        h0_orig = h0_orig.reshape([1, self.hparams['n_unit']])
         h0 = h0_orig
 
         train_errs_per_epoch = list()
@@ -273,9 +275,9 @@ if __name__ == '__main__':
                                                           Wout=sample_params['Wout'],
                                                           bout=sample_params['bout'])
 
-    hparams = {'rnn_type':'SRNN', 'opt_algorithm':'annealed_sgd',
-               'n_train_steps':75, 'n_unit':n_hid, 'dropout':{'R':0.0, 'W':0.0},
-               'lambda2':1e-1}
+    hparams = {'rnn_type':'SRNN', 'opt_algorithm':'annealed_sgd', 'n_train_steps':75,
+               'n_in':n_in, 'n_out':n_out, 'n_unit':n_hid,
+               'dropout':{'R':0.0, 'W':0.0}, 'lambda2':1e-1, 't_mem':t_mem}
 
     rnn_trainer = MultivariateRNNTrainer(hparams)
     rnn_trainer.train(Utrain, Ytrain, Utest, Ytest)
