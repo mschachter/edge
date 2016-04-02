@@ -84,11 +84,11 @@ class MultivariateRNNTrainer(object):
                 eta = None
 
                 if self.hparams['opt_algorithm'] == 'adam':
-                    eta = tf.train.exponential_decay(.008, t, 2000, 0.5, staircase=True)
+                    eta = tf.train.exponential_decay(self.hparams['eta0'], t, 2000, 0.5, staircase=True)
                     self.optimizer = tf.train.AdamOptimizer(learning_rate=eta)
 
                 elif self.hparams['opt_algorithm'] == 'annealed_sgd':
-                    eta = tf.train.exponential_decay(5e-2, t, 5000, 0.1, staircase=True)
+                    eta = tf.train.exponential_decay(self.hparams['eta0'], t, 5000, 0.1, staircase=True)
                     self.optimizer = tf.train.GradientDescentOptimizer(eta)
 
                 grads, params = zip(*self.optimizer.compute_gradients(net_err))
@@ -105,6 +105,7 @@ class MultivariateRNNTrainer(object):
 
         n_train_steps = self.hparams['n_train_steps']
         n_samps = Utrain.shape[0]
+        n_samps_test = Utest.shape[0]
         assert Ytrain.shape[0] == n_samps
 
         # create a random initial state to start with
@@ -277,7 +278,8 @@ if __name__ == '__main__':
 
     hparams = {'rnn_type':'SRNN', 'opt_algorithm':'annealed_sgd', 'n_train_steps':75,
                'n_in':n_in, 'n_out':n_out, 'n_unit':n_hid,
-               'dropout':{'R':0.0, 'W':0.0}, 'lambda2':1e-1, 't_mem':t_mem}
+               'dropout':{'R':0.0, 'W':0.0}, 'lambda2':1e-1, 't_mem':t_mem,
+               'eta0':5e-2}
 
     rnn_trainer = MultivariateRNNTrainer(hparams)
     rnn_trainer.train(Utrain, Ytrain, Utest, Ytest)
