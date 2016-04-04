@@ -1,11 +1,10 @@
 from __future__ import division
 
-from copy import deepcopy
-
 import numpy as np
 import matplotlib.pyplot as plt
 
 import tensorflow as tf
+import time
 
 from edge.test.data import create_sample_data
 from edge.networks import Basic_Network
@@ -16,13 +15,16 @@ class MultivariateRNNTrainer(object):
     def __init__(self, hparams):
         self.hparams = hparams
 
-        self.graph = None
+        self.train_graph = None
+        self.run_graph = None
+
         self.net = None
         self.optimizer = None
-        self.vars = None
+        self.train_vars = None
+        self.run_vars = None
 
-        self.train_errs_per_epoch = None
-        self.test_errs_per_epoch = None
+        self.epoch_errs = None
+        self.epoch_test_errs = None
         self.test_preds = None
 
         self.build()
@@ -30,55 +32,24 @@ class MultivariateRNNTrainer(object):
     def build(self):
 
         # build the graph that will execute for each batch
-        self.graph = tf.Graph()
-        with self.graph.as_default():
+        self.train_graph = tf.Graph()
+        with self.train_graph.as_default():
 
             # construct the RNN
             self.net = Basic_Network(self.hparams['n_in'], self.hparams, n_output=self.hparams['n_out'])
 
             with tf.name_scope('training'):
+                print("Building training op...")
+                self.train_vars = self.create_batch_train_op()
 
-                # the input placeholder, contains the entire multivariate input time series for a batch
-                U = tf.placeholder(tf.float32, shape=[self.hparams['t_mem'], self.hparams['n_in']])
-
-                # the output placeholder, contains the desired multivariate output time series for a batch
-                Y = tf.placeholder(tf.float32, shape=[self.hparams['t_mem'], self.hparams['n_out']])
-
-                # the initial state placeholder, contains the initial state used at the beginning of a batch
-                h = tf.placeholder(tf.float32, shape=[1, self.hparams['n_unit']])
-
-                hnext = h
-
-                lambda2_val = self.hparams['lambda2']
-                l2_cost = self.net.l2_W(lambda2_val) + self.net.l2_R(lambda2_val) + self.net.l2_Wout(lambda2_val)
-
-                # The forward propagation graph
-                net_err_list = list()
-                net_preds = list()
-                for t in range(self.hparams['t_mem']):
-
-                    # construct the input vector at time t by slicing the input placeholder U, do the same for Y
-                    u = tf.slice(U, [t, 0], [1, self.hparams['n_in']])
-                    y = tf.slice(Y, [t, 0], [1, self.hparams['n_out']])
-
-                    # create an op to move the network state forward one time step, given the input
-                    # vector u and previous hidden state h
-                    (hnext,), yhat = self.net.step((hnext,), u)
-
-                    # save the prediction op for this time step
-                    net_preds.append(yhat)
-
-                    # compute the cost at time t
-                    mse = tf.reduce_mean(tf.squeeze(tf.square(y - yhat)))
-                    err = mse + l2_cost
-                    net_err_list.append(tf.expand_dims(err, 0))
-
-                # compute the overall training error, the mean of the mean square error at each time point
-                net_err_list = tf.concat(0, net_err_list)
-                net_err = tf.reduce_mean(net_err_list)
+            with tf.name_scope('running'):
+                print("Building run op...")
+                self.run_vars = self.create_run_op()
 
             # The optimizer
             with tf.name_scope('optimizer'):
+
+                print("Building optimization ops...")
 
                 t = tf.Variable(0, name= 't', trainable=False) # the step variable
                 eta = None
@@ -91,104 +62,165 @@ class MultivariateRNNTrainer(object):
                     eta = tf.train.exponential_decay(self.hparams['eta0'], t, 5000, 0.1, staircase=True)
                     self.optimizer = tf.train.GradientDescentOptimizer(eta)
 
-                grads, params = zip(*self.optimizer.compute_gradients(net_err))
-
+                grads, params = zip(*self.optimizer.compute_gradients(self.train_vars['batch_err']))
                 # grads, _ = tf.clip_by_global_norm(grads, hparams['grad_clip_norm'])
-
                 apply_grads = self.optimizer.apply_gradients(zip(grads, params), global_step=t)
 
-            self.vars = {'U':U, 'Y':Y, 'h':h,  't':t,  'hnext':hnext, 'l2_cost':l2_cost,
-                         'net_err':net_err, 'net_preds':net_preds,
-                         'eta':eta, 'grads':grads, 'params':params, 'apply_grads':apply_grads}
+            self.train_vars['eta'] = eta
+            self.train_vars['grads'] = grads
+            self.train_vars['params'] = params
+            self.train_vars['apply_grads'] = apply_grads
 
-    def train(self, Utrain, Ytrain, Utest, Ytest):
+    def create_batch_train_op(self):
+
+        # the input placeholder, contains the entire multivariate input time series for a batch
+        U = tf.placeholder(tf.float32, shape=[self.hparams['batch_size'], self.hparams['t_mem'], self.hparams['n_in']])
+
+        # the output placeholder, contains the desired multivariate output time series for a batch
+        Y = tf.placeholder(tf.float32, shape=[self.hparams['batch_size'], self.hparams['t_mem'], self.hparams['n_out']])
+
+        # the initial state placeholder, contains the initial state used at the beginning of a batch
+        h = tf.placeholder(tf.float32, shape=[1, self.hparams['n_unit']])
+        hnext = h
+        lambda2_val = self.hparams['lambda2']
+        l2_cost = self.net.l2_W(lambda2_val) + self.net.l2_R(lambda2_val) + self.net.l2_Wout(lambda2_val)
+
+        # The forward propagation graph
+        batch_err_list = list()
+        # batch_net_preds = list()
+        for b in range(self.hparams['batch_size']):
+
+            net_err_list = list()
+            # net_preds = list()
+            for t in range(self.hparams['t_mem']):
+                # construct the input vector at time t by slicing the input placeholder U, do the same for Y
+                u = tf.reshape(tf.slice(U, [b, t, 0], [1, 1, self.hparams['n_in']]), [1, self.hparams['n_in']])
+                y = tf.reshape(tf.slice(Y, [b, t, 0], [1, 1, self.hparams['n_out']]), [1, self.hparams['n_out']])
+
+                # create an op to move the network state forward one time step, given the input
+                # vector u and previous hidden state h
+                (hnext,), yhat = self.net.step((hnext,), u)
+
+                # save the prediction op for this time step
+                # net_preds.append(yhat)
+
+                # compute the cost at time t
+                mse = tf.reduce_mean(tf.squeeze(tf.square(y - yhat)))
+                err = mse + l2_cost
+                net_err_list.append(tf.expand_dims(err, 0))
+
+            # compute the overall training error, the mean of the mean square error at each time point
+            net_err_list = tf.concat(0, net_err_list)
+            net_err = tf.reduce_mean(net_err_list)
+            batch_err_list.append(tf.expand_dims(net_err, 0))
+            # batch_net_preds.append(net_preds)
+        batch_err_list = tf.concat(0, batch_err_list)
+        batch_err = tf.reduce_mean(batch_err_list)
+
+        return {'U':U, 'Y':Y, 'batch_err':batch_err, 'h':h, 'hnext':hnext}
+
+    def create_run_op(self):
+
+        # the input placeholder, contains the entire multivariate input time series for a batch
+        U = tf.placeholder(tf.float32, shape=[self.hparams['t_run'], self.hparams['n_in']])
+
+        # the initial state placeholder, contains the initial state used at the beginning of a batch
+        h = tf.placeholder(tf.float32, shape=[1, self.hparams['n_unit']])
+        hnext = h
+
+        # list to hold network outputs
+        net_preds = list()
+
+        for t in range(self.hparams['t_run']):
+            # construct the input vector at time t by slicing the input placeholder U, do the same for Y
+            u = tf.slice(U, [t, 0], [1, self.hparams['n_in']])
+
+            # create an op to move the network state forward one time step, given the input
+            # vector u and previous hidden state h
+            (hnext,), yhat = self.net.step((hnext,), u)
+            net_preds.append(yhat)
+
+        return {'net_preds':net_preds, 'h':h, 'U':U, 'hnext':hnext}
+
+    def train(self, Utrain, Ytrain, Utest=None, Ytest=None, test_check_interval=5):
 
         n_train_steps = self.hparams['n_train_steps']
         n_samps = Utrain.shape[0]
-        n_samps_test = Utest.shape[0]
         assert Ytrain.shape[0] == n_samps
+
+        n_samps_per_batch = self.hparams['batch_size']
+        n_batches = int(n_samps / n_samps_per_batch)
+        print('# of samples: %d' % n_samps)
+        print('# of batches: %d' % n_batches)
 
         # create a random initial state to start with
         h0_orig = np.random.randn(self.hparams['n_unit']) * 1e-3
         h0_orig = h0_orig.reshape([1, self.hparams['n_unit']])
         h0 = h0_orig
 
-        train_errs_per_epoch = list()
-        test_errs_per_epoch = list()
-        test_preds = None
-        with tf.Session(graph=self.graph) as session:
+        test_check = False
+        if Utest is not None:
+            assert Ytest is not None, "Must specify both Utest and Ytest, or neither!"
+            test_check = True
+
+        with tf.Session(graph=self.train_graph) as session:
+            print('Starting training session...')
 
             tf.initialize_all_variables().run()
 
             # for each training iteration
+            epoch_errs = list()
+            epoch_test_errs = list()
             for step in range(n_train_steps):
 
-                h0_start = deepcopy(h0)
+                # print("step=%d, len(all_variables())=%d" % (step, len(tf.all_variables())))
 
-                train_errs_per_samp = list()
-                test_errs_per_samp = list()
+                stime = time.time()
+                eta_val = None
+                batch_errs = list()
+                for b in range(n_batches):
+                    batch_i = b*n_samps_per_batch
+                    batch_e = batch_i + n_samps_per_batch
 
-                # train on each minibatch
-                for k in range(n_samps):
                     # put the input and output matrices in the feed dictionary for this minibatch
-                    Uk = Utrain[k, :, :]
-                    Yk = Ytrain[k, :, :]
-                    feed_dict = {self.vars['U']:Uk, self.vars['Y']:Yk, self.vars['h']:h0}
+                    Uk = Utrain[batch_i:batch_e, :, :]
+                    Yk = Ytrain[batch_i:batch_e, :, :]
+                    feed_dict = {self.train_vars['U']:Uk, self.train_vars['Y']:Yk, self.train_vars['h']:h0}
 
                     # run the session to train the model for this minibatch
-                    to_compute = [self.vars[vname] for vname in ['net_err', 'eta', 'hnext', 'apply_grads']]
+                    to_compute = [self.train_vars[vname] for vname in ['batch_err', 'eta', 'hnext', 'apply_grads']]
                     train_error_val, eta_val, hnext_val = session.run(to_compute, feed_dict=feed_dict)[:3]
 
                     # get the last hidden state value to use on the next minibatch
                     h0 = hnext_val
-                    train_errs_per_samp.append(train_error_val)
+                    batch_errs.append(train_error_val)
 
-                # predict on the test set
-                h0 = h0_start
-                Yhat = list()
-                for k in range(n_samps_test):
-                    Uk = Utest[k, :, :]
-                    Yk = Ytest[k, :, :]
-                    feed_dict = {self.vars['U']:Uk, self.vars['Y']:Yk, self.vars['h']:h0}
+                batch_errs = np.array(batch_errs)
+                epoch_errs.append(batch_errs)
 
-                    to_compute = [self.vars[vname] for vname in ['net_err', 'hnext']]
-                    to_compute.extend(self.vars['net_preds'])
-                    compute_outputs = session.run(to_compute, feed_dict=feed_dict)
-                    test_error_val, hnext_val = compute_outputs[:2]
-                    test_preds_val = np.array(compute_outputs[2:])
-                    test_errs_per_samp.append(test_error_val)
-                    h0 = hnext_val
-                    Yhat.append(test_preds_val)
+                test_err = np.nan
+                if test_check and ((step % test_check_interval == 0) or (step == n_train_steps-1)):
+                    Yhat = session.run(self.run_vars['net_preds'], feed_dict={self.run_vars['U']:Utest, self.run_vars['h']:h0})
+                    Yhat = np.array(Yhat).squeeze()
+                    test_err = np.mean((Yhat - Ytest)**2)
+                    epoch_test_errs.append((step, test_err))
+                    self.test_preds = Yhat
 
-                # overwrite the old value of test_preds, so that it's equal to the prediction
-                # for the last optimization iteration
-                test_preds = np.array(Yhat)
-                
-                train_errs_per_samp = np.array(train_errs_per_samp)
-                test_errs_per_samp = np.array(test_errs_per_samp)
-                
-                print('iter=%d, eta=%0.6f, train_err=%0.6f +/- %0.3f, test_err=%0.6f +/- %0.3f' %
-                  (step, eta_val,
-                   train_errs_per_samp.mean(), train_errs_per_samp.std(ddof=1),
-                   test_errs_per_samp.mean(), test_errs_per_samp.std(ddof=1)))
+                etime = time.time() - stime
+                print('iter=%d, eta=%0.6f, train_err=%0.6f +/- %0.6f, test_err=%0.6f, time=%0.3fs' % \
+                      (step, eta_val, batch_errs.mean(), batch_errs.std(ddof=1), test_err, etime))
 
-                train_errs_per_epoch.append(train_errs_per_samp)
-                test_errs_per_epoch.append(test_errs_per_samp)
+            self.epoch_errs = np.array(epoch_errs)
+            self.epoch_test_errs = np.array(epoch_test_errs)
 
-            self.train_errs_per_epoch = np.array(train_errs_per_epoch)
-            self.test_errs_per_epoch = np.array(test_errs_per_epoch)
-
-            self.test_preds = test_preds.squeeze()
-
-    def plot_training(self, Utest, Ytest):
-
+    def plot(self, Utest, Ytest):
         n_train_steps = self.hparams['n_train_steps']
 
         plt.figure()
         gs = plt.GridSpec(100, 100)
 
         ax = plt.subplot(gs[:45, :30])
-        plt.errorbar(range(n_train_steps), self.train_errs_per_epoch.mean(axis=1), yerr=self.train_errs_per_epoch.std(axis=1, ddof=1),
+        plt.errorbar(range(n_train_steps), self.epoch_errs.mean(axis=1), yerr=self.epoch_errs.std(axis=1, ddof=1),
                      linewidth=4.0, c='r', alpha=0.7, elinewidth=2.0, ecolor='k')
         plt.axis('tight')
         plt.xlabel('Epoch')
@@ -196,17 +228,16 @@ class MultivariateRNNTrainer(object):
         plt.title('Training Error')
 
         ax = plt.subplot(gs[50:, :30])
-        plt.errorbar(range(n_train_steps), self.test_errs_per_epoch.mean(axis=1), yerr=self.test_errs_per_epoch.std(axis=1, ddof=1),
-                     linewidth=4.0, c='b', alpha=0.7, elinewidth=2.0, ecolor='k')
+        test_x = self.epoch_test_errs[:, 0]
+        test_err = self.epoch_test_errs[:, 1]
+        plt.plot(test_x, test_err, linewidth=4.0, c='b', alpha=0.7)
         plt.axis('tight')
         plt.xlabel('Epoch')
         plt.ylabel('Test Error')
         plt.title('Test Error')
 
-        Y_t = Ytest.reshape([Ytest.shape[0]*Ytest.shape[1], Ytest.shape[2]])
-        Yhat_t = self.test_preds.reshape([self.test_preds.shape[0]*self.test_preds.shape[1], self.test_preds.shape[2]])
-
-        nt,nf = Y_t.shape
+        Yhat_t = self.test_preds
+        nt,nf = Ytest.shape
         nrows_per_plot = int(100. / nf)
         row_padding = 5
 
@@ -215,7 +246,7 @@ class MultivariateRNNTrainer(object):
             gs_e = ((k+1)*nrows_per_plot)-row_padding
             ax = plt.subplot(gs[gs_i:gs_e, 35:])
 
-            yt = Y_t[:, k]
+            yt = Ytest[:, k]
             yhatt = Yhat_t[:, k]
             ycc = np.corrcoef(yt, yhatt)[0, 1]
 
@@ -235,10 +266,10 @@ if __name__ == '__main__':
     np.random.seed(123456)
 
     n_in = 2
-    n_hid_data = 10
-    n_hid = 25
-    n_out = 16
-    t_in = 2000
+    n_hid_data = 4
+    n_hid = 10
+    n_out = 3
+    t_in = 10000
 
     # the "memory" of the network, how many time steps BPTT is run for
     t_mem = 20
@@ -267,20 +298,23 @@ if __name__ == '__main__':
     """
 
     # create some fake data for validation
-    t_in_test = 100
+    t_in_test = 1000
     n_samps_test = int(t_in_test / t_mem)
-    Utest,Xtest,Ytest,sample_params2 = create_sample_data(n_in, n_hid_data, n_out, t_in_test, n_samps_test, segment_U=True,
+    Utest,Xtest,Ytest,sample_params2 = create_sample_data(n_in, n_hid_data, n_out, t_in_test, n_samps_test, segment_U=False,
                                                           Win=sample_params['Win'],
                                                           W=sample_params['W'],
                                                           b=sample_params['b'],
                                                           Wout=sample_params['Wout'],
                                                           bout=sample_params['bout'])
 
-    hparams = {'rnn_type':'SRNN', 'opt_algorithm':'annealed_sgd', 'n_train_steps':75,
+    hparams = {'rnn_type':'SRNN', 'opt_algorithm':'annealed_sgd', 'n_train_steps':25, 'batch_size':1,
                'n_in':n_in, 'n_out':n_out, 'n_unit':n_hid,
-               'dropout':{'R':0.0, 'W':0.0}, 'lambda2':1e-1, 't_mem':t_mem,
+               'dropout':{'R':0.0, 'W':0.0}, 'lambda2':1e-1, 't_mem':t_mem, 't_run':Utest.shape[0],
                'eta0':5e-2}
 
+    print("Building network...")
     rnn_trainer = MultivariateRNNTrainer(hparams)
+    print("Training network...")
     rnn_trainer.train(Utrain, Ytrain, Utest, Ytest)
-    rnn_trainer.plot_training(Utest, Ytest)
+    print("Plotting network...")
+    rnn_trainer.plot(Utest, Ytest)
