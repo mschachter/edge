@@ -10,7 +10,7 @@ import numpy as np
 
 from input_generator import Input_Generator
 import util.text_processing as text_proc
-from networks import Basic_Network
+from networks import Prediction_Network
 from sampler import Sampler
 
 t_run_start = time.time()
@@ -60,15 +60,13 @@ n_prop = hparams['n_prop']
 
 train_input_generator = Input_Generator(train_text, alphabet, n_batch, n_prop)
 
-n_unit = hparams['n_unit']
-
 
 
 
 graph = tf.Graph()
 with graph.as_default():
 
-    net = Basic_Network(n_alphabet, hparams)
+    net = Prediction_Network(hparams)
 
     ## First we build the training graph
 
@@ -82,39 +80,22 @@ with graph.as_default():
 
         # The forward propagation graph
         errs = list()
+        entropies = list()
 
-        init_train_state = net.get_new_states(n_batch)
-        train_state = init_train_state
+        train_state_store = net.get_new_state_store(n_batch)
+        train_state = net.state_from_store(train_state_store)
 
-        init_d_state = net.get_new_states(n_batch)
-        d_state = init_d_state
-        predictions = []
         for (x_input, x_label) in zip(x_inputs, x_labels):
-            train_state, logits = net.step(train_state, x_input, d_state)
-
-
-            p_next = tf.nn.softmax(logits)
-            entropy = -tf.reduce_sum(p_next*tf.log(p_next), 1)
-
-            cross_entropy = tf.nn.softmax_cross_entropy_with_logits(logits, x_label)
+            x_pred = net.step(train_state, x_input)
+            cross_entropy, entropy = net.evaluate_prediction(train_state, x_pred, x_label)
             errs.append(cross_entropy)
-
-            unexpected_entropy = entropy - cross_entropy
-
-            d_state = net.gradient(cross_entropy, train_state)
-
-
 
 
         train_err = tf.reduce_mean(tf.concat(0, errs))
-        train_summ = tf.scalar_summary('train error', train_err)
 
         # The update that allows state to carry across f-props
-        store_train_state = net.store_state_op(train_state, init_train_state)
-        store_d_state = net.store_state_op(d_state, init_d_state)
-
-        reset_train_state = net.reset_state_op(init_train_state)
-        reset_train_d_state = net.reset_state_op(init_d_state)
+        store_train_state = net.store_state_op(train_state, train_state_store)
+        reset_train_state = net.reset_state_op(train_state_store)
 
     # The optimizer
     with tf.name_scope('optimizer'):
@@ -137,7 +118,6 @@ with graph.as_default():
 
     saver = tf.train.Saver()
 
-    # sampler = Sampler(net, alphabet)
 
 n_train_steps = hparams['n_train_steps']
 
@@ -151,7 +131,6 @@ valid_error_hist = []
 with tf.Session(graph=graph) as session:
     tf.initialize_all_variables().run()
 
-    # tf.train.SummaryWriter('/tmp/lstm', graph_def = session.graph_def)
 
     for step in range(n_train_steps):
 
@@ -159,8 +138,6 @@ with tf.Session(graph=graph) as session:
         if np.random.poisson(reset_rate) > 0:
             print 'State reset!'
             session.run([reset_train_state])
-            if net.uses_error:
-                session.run([reset_train_d_state])
 
         # Set up input value -> input var mapping
         window = train_input_generator.next_window()
@@ -169,21 +146,7 @@ with tf.Session(graph=graph) as session:
             feed_dict[xs[i]] = window[i]
 
         to_compute = [train_err, eta, apply_grads, store_train_state]
-        if net.uses_error:
-            to_compute.append(store_d_state)
-
-        # if step > 999:
-        #     to_compute += predictions
-        #     results = session.run(to_compute, feed_dict=feed_dict)
-        #     predictions = results[4:]
-        #     import ipdb; ipdb.set_trace()
-
         error_val, eta_val = session.run(to_compute, feed_dict=feed_dict)[:2]
-
-        # print init_train_state[0].eval()
-        # print '===================='
-        # print net.logit_layer.W.eval()
-        # print '--------------------'
 
         mean_error += error_val
 
@@ -203,7 +166,7 @@ with tf.Session(graph=graph) as session:
 
                 print 'Validation error:', mean_valid_error
 
-                prime, sample_string = sampler.sample(session, bias = 2.0)
+                prime, sample_string = sampler.sample(session, bias = 10.0)
                 print 'Sampling... ' + prime + '-->' + sample_string
 
     # save the model, params, and stats to the run dir

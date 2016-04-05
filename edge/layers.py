@@ -18,6 +18,13 @@ class Linear_Layer(object):
     def output(self, x):
         return tf.nn.xw_plus_b(x, self.W, self.b)
 
+class Softmax_Prediction_Layer(object):
+    def __init__(self, n_input, n_output, hparams):
+        self.linear = Linear_Layer(n_input, n_output, hparams)
+
+    def output(self, x):
+        return tf.nn.softmax(self.linear.output(x))
+
 
 class SRNN_Layer(object):
 
@@ -29,11 +36,41 @@ class SRNN_Layer(object):
         self.R = tf.Variable(init_weights(n_unit, n_unit, hparams), name='R')
         self.b = tf.Variable(tf.zeros([1, n_unit]), name='b')
 
-    def step(self, h, x, *d_state):
-        """Updates returns the state updated by input x"""
-        h = tf.tanh(tf.matmul(x, self.W) + tf.matmul(h, self.R) + self.b)
+        prediction_signals = hparams['prediction_signals']
+        if 'entropy' in prediction_signals:
+            self.w_ent = tf.Variable(tf.zeros([1, n_unit]), name='w_ent')
+        if 'excess_entropy' in prediction_signals:
+            self.w_ex_ent = tf.Variable(tf.zeros([1, n_unit]), name='w_ex_ent')
+        if 'd_entropy' in prediction_signals:
+            self.W_d_ent = tf.Variable(tf.zeros(n_unit, n_unit, hparams),
+                name='W_d_ent')
+        if 'd_excess_entropy' in prediction_signals:
+            self.W_d_ex_ent = tf.Variable(tf.zeros(n_unit, n_unit, hparams),
+                name='W_d_ex_ent')
 
-        return h
+        self.prediction_signals = prediction_signals
+
+    def step(self, state, x):
+        """Updates returns the state updated by input x"""
+
+        h = state['h']
+
+        u = tf.matmul(x, self.W) + tf.matmul(h, self.R) + self.b
+
+
+        if 'entropy' in self.prediction_signals:
+            u += tf.matmul(state['entropy'], self.w_ent)
+        if 'excess_entropy' in self.prediction_signals:
+            u += tf.matmul(state['excess_entropy'], self.w_ex_ent)
+        if 'd_entropy' in self.prediction_signals:
+            u += tf.matmul(state['d_ent'], self.W_d_ent)
+        if 'd_excess_entropy' in self.prediction_signals:
+            u += tf.matmul(state['d_ex_ent'], self.W_d_ex_ent)
+
+        h_next = tf.tanh(u)
+        state['h'] = h_next
+
+        return h_next
 
 
 class EDSRNN_Layer(SRNN_Layer):
