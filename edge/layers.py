@@ -33,6 +33,12 @@ class SRNN_Layer(object):
 
         self.dropout = {'W':0, 'R':0}
 
+        if 'activation' in hparams:
+            assert hparams['activation'] in ['sigmoid', 'tanh', 'relu', 'elu']
+            self.activation = getattr(tf.nn, hparams['activation'])
+        else:
+            self.activation = tf.nn.tanh
+
         if 'dropout' in hparams:
             if np.isscalar(hparams['dropout']):
                 self.dropout['W'] = hparams['dropout']
@@ -58,7 +64,7 @@ class SRNN_Layer(object):
 
         xxx = tf.matmul(x, W)
         hhh = tf.matmul(h, R)
-        h = tf.tanh(xxx + hhh + self.b)
+        h = self.activation(xxx + hhh + self.b)
 
         return h,
 

@@ -27,6 +27,8 @@ class MultivariateRNNTrainer(object):
         self.epoch_test_errs = None
         self.test_preds = None
 
+        self.trained_params = None
+
         self.build()
 
     def build(self):
@@ -70,6 +72,10 @@ class MultivariateRNNTrainer(object):
             self.train_vars['grads'] = grads
             self.train_vars['params'] = params
             self.train_vars['apply_grads'] = apply_grads
+            self.train_vars['R'] = self.net.rnn_layer.R
+
+            if 'sign_constrain_R' in hparams:
+                self.train_vars['sign_constrain_R'] = self.net.sign_constraint_R(hparams['sign_constrain_R'])
 
     def create_batch_train_op(self):
 
@@ -189,6 +195,9 @@ class MultivariateRNNTrainer(object):
 
                     # run the session to train the model for this minibatch
                     to_compute = [self.train_vars[vname] for vname in ['batch_err', 'eta', 'hnext', 'apply_grads']]
+                    if 'sign_constrain_R' in self.train_vars:
+                        to_compute.append(self.train_vars['sign_constrain_R'])
+
                     train_error_val, eta_val, hnext_val = session.run(to_compute, feed_dict=feed_dict)[:3]
 
                     # get the last hidden state value to use on the next minibatch
@@ -212,6 +221,8 @@ class MultivariateRNNTrainer(object):
 
             self.epoch_errs = np.array(epoch_errs)
             self.epoch_test_errs = np.array(epoch_test_errs)
+
+            self.trained_params = {'R':session.run(self.train_vars['R'])}
 
     def plot(self, Utest, Ytest):
         n_train_steps = self.hparams['n_train_steps']
@@ -258,6 +269,13 @@ class MultivariateRNNTrainer(object):
             plt.legend(['Real', 'Prediction'])
             plt.title('cc=%0.2f' % ycc)
 
+        plt.figure()
+        R = self.trained_params['R']
+        absmax = np.abs(R).max()
+        plt.imshow(R, interpolation='nearest', aspect='auto', vmin=-absmax, vmax=absmax, cmap=plt.cm.seismic)
+        plt.colorbar()
+        plt.title('Recurrent Weight Matrix')
+
         plt.show()
 
 
@@ -267,9 +285,9 @@ if __name__ == '__main__':
 
     n_in = 2
     n_hid_data = 4
-    n_hid = 10
+    n_hid = 20
     n_out = 3
-    t_in = 10000
+    t_in = 5000
 
     # the "memory" of the network, how many time steps BPTT is run for
     t_mem = 20
@@ -308,9 +326,16 @@ if __name__ == '__main__':
                                                           bout=sample_params['bout'])
 
     hparams = {'rnn_type':'SRNN', 'opt_algorithm':'annealed_sgd', 'n_train_steps':25, 'batch_size':1,
-               'n_in':n_in, 'n_out':n_out, 'n_unit':n_hid,
+               'n_in':n_in, 'n_out':n_out, 'n_unit':n_hid, 'activation':'relu',
                'dropout':{'R':0.0, 'W':0.0}, 'lambda2':1e-1, 't_mem':t_mem, 't_run':Utest.shape[0],
                'eta0':5e-2}
+
+    sign_mat = np.ones([n_hid, n_hid])
+    for k in range(n_hid):
+        if k % 2 == 0:
+            sign_mat[:, k] *= -1.
+
+    hparams['sign_constrain_R'] = sign_mat
 
     print("Building network...")
     rnn_trainer = MultivariateRNNTrainer(hparams)

@@ -1,6 +1,7 @@
 import numpy as np
 
 import tensorflow as tf
+from tensorflow.python.ops import math_ops
 
 import layers
 
@@ -65,3 +66,24 @@ class Basic_Network(object):
 
     def l2_Wout(self, lambda_val=1.):
         return lambda_val*(tf.reduce_mean(tf.square(self.output_layer.W)) + tf.reduce_mean(tf.square(self.output_layer.b)))
+
+    def sign_constraint_R(self, sign_mat, name=None):
+        """ Constrain the recurrent weight matrix so that each element has the specified sign. Returns an op that zeros
+            out weights that are the wrong sign.
+
+        :param sign_mat: A matrix of shape (n_hidden, n_hidden) that has a 1 for elements that should be positive,
+                and -1 for elements that should be negative.
+        """
+
+        with tf.op_scope([sign_mat], name, "sign_constrain_R") as scope:
+            # encode the sign matrix as a graph variable
+            G = tf.constant(sign_mat.astype('float32'))
+
+            # get the sign of the recurrent net weights
+            S = tf.sign(self.rnn_layer.R)
+
+            # compute a binary mask that will zero out weights that are the wrong sign
+            M = math_ops.maximum(tf.mul(S, G), 0)
+
+            # constrain weights to be positive
+            return self.rnn_layer.R.assign(tf.mul(self.rnn_layer.R, M))
