@@ -7,6 +7,7 @@ def init_weights(n_input, n_unit, hparams):
         tf.sqrt(2.0)/tf.sqrt(tf.cast(n_input + n_unit, tf.float32)))
 
 
+
 class Linear_Layer(object):
     def __init__(self, n_input, n_output, hparams):
         self.n_input = n_input
@@ -18,7 +19,7 @@ class Linear_Layer(object):
     def output(self, x):
         return tf.nn.xw_plus_b(x, self.W, self.b)
 
-class Softmax_Prediction_Layer(object):
+class Softmax_Linear_Layer(object):
     def __init__(self, n_input, n_output, hparams):
         self.linear = Linear_Layer(n_input, n_output, hparams)
 
@@ -27,7 +28,6 @@ class Softmax_Prediction_Layer(object):
 
 
 class SRNN_Layer(object):
-
     def __init__(self, n_input, n_unit, hparams):
         self.n_input = n_input
         self.n_unit = n_unit
@@ -39,14 +39,14 @@ class SRNN_Layer(object):
         prediction_signals = hparams['prediction_signals']
         if 'entropy' in prediction_signals:
             self.w_ent = tf.Variable(tf.zeros([1, n_unit]), name='w_ent')
-        if 'excess_entropy' in prediction_signals:
-            self.w_ex_ent = tf.Variable(tf.zeros([1, n_unit]), name='w_ex_ent')
+        if 'unexpected_entropy' in prediction_signals:
+            self.w_unex_ent = tf.Variable(tf.zeros([1, n_unit]), name='w_unex_ent')
         if 'd_entropy' in prediction_signals:
-            self.W_d_ent = tf.Variable(tf.zeros(n_unit, n_unit, hparams),
+            self.W_d_ent = tf.Variable(tf.zeros([n_unit, n_unit]),
                 name='W_d_ent')
-        if 'd_excess_entropy' in prediction_signals:
-            self.W_d_ex_ent = tf.Variable(tf.zeros(n_unit, n_unit, hparams),
-                name='W_d_ex_ent')
+        if 'd_unexpected_entropy' in prediction_signals:
+            self.W_d_unex_ent = tf.Variable(tf.zeros([n_unit, n_unit]),
+                name='W_d_unex_ent')
 
         self.prediction_signals = prediction_signals
 
@@ -60,12 +60,12 @@ class SRNN_Layer(object):
 
         if 'entropy' in self.prediction_signals:
             u += tf.matmul(state['entropy'], self.w_ent)
-        if 'excess_entropy' in self.prediction_signals:
-            u += tf.matmul(state['excess_entropy'], self.w_ex_ent)
+        if 'unexpected_entropy' in self.prediction_signals:
+            u += tf.matmul(state['unexpected_entropy'], self.w_unex_ent)
         if 'd_entropy' in self.prediction_signals:
             u += tf.matmul(state['d_ent'], self.W_d_ent)
-        if 'd_excess_entropy' in self.prediction_signals:
-            u += tf.matmul(state['d_ex_ent'], self.W_d_ex_ent)
+        if 'd_unexpected_entropy' in self.prediction_signals:
+            u += tf.matmul(state['d_unex_ent'], self.W_d_unex_ent)
 
         h_next = tf.tanh(u)
         state['h'] = h_next
@@ -94,6 +94,9 @@ class GRU_Layer(object):
         self.n_input = n_input
         self.n_unit = n_unit
 
+        prediction_signals = hparams['prediction_signals']
+        self.prediction_signals = prediction_signals
+
         # The computed update
         with tf.name_scope('update'):
             self.Wu = tf.Variable(init_weights(n_input, n_unit, hparams), name='Wu')
@@ -112,16 +115,49 @@ class GRU_Layer(object):
             self.Rz = tf.Variable(init_weights(n_unit, n_unit, hparams), name='Rz')
             self.bz = tf.Variable(tf.zeros([1, n_unit]), name='bz')
 
-    def step(self, h, x, *d_state):
 
-        r = tf.sigmoid(tf.matmul(x, self.Wr) + tf.matmul(h, self.Rr) + self.br)
-        z = tf.sigmoid(tf.matmul(x, self.Wz) + tf.matmul(h, self.Rz) + self.bz)
+            if 'entropy' in prediction_signals:
+                self.w_ent = tf.Variable(tf.zeros([1, n_unit]), name='w_ent')
+            if 'unexpected_entropy' in prediction_signals:
+                self.w_unex_ent = tf.Variable(tf.zeros([1, n_unit]), name='w_unex_ent')
+            if 'd_entropy' in prediction_signals:
+                self.W_d_ent = tf.Variable(tf.zeros([n_unit, n_unit]),
+                    name='W_d_ent')
+            if 'd_unexpected_entropy' in prediction_signals:
+                self.W_d_unex_ent = tf.Variable(tf.zeros([n_unit, n_unit]),
+                    name='W_d_unex_ent')
 
-        h_tilde = tf.tanh(tf.matmul(x, self.Wu) + r*tf.matmul(h, self.Ru) + self.bu)
 
-        h = (1.0 - z)*h + z*h_tilde
+    def step(self, state, x):
 
-        return h
+        h = state['h']
+
+        with tf.name_scope('reset_gate'):
+            r = tf.sigmoid(tf.matmul(x, self.Wr) + tf.matmul(h, self.Rr) + self.br)
+
+        with tf.name_scope('update_gate'):
+
+            u = tf.matmul(x, self.Wz) + tf.matmul(h, self.Rz) + self.bz
+
+            if 'entropy' in self.prediction_signals:
+                u += tf.matmul(state['entropy'], self.w_ent)
+            if 'unexpected_entropy' in self.prediction_signals:
+                u += tf.matmul(state['unexpected_entropy'], self.w_unex_ent)
+            if 'd_entropy' in self.prediction_signals:
+                u += tf.matmul(state['d_ent'], self.W_d_ent)
+            if 'd_unexpected_entropy' in self.prediction_signals:
+                u += tf.matmul(state['d_unex_ent'], self.W_d_unex_ent)
+
+            z = tf.sigmoid(u)
+
+        with tf.name_scope('update_value'):
+            h_tilde = tf.tanh(tf.matmul(x, self.Wu) + r*tf.matmul(h, self.Ru) + self.bu)
+
+
+        h_next = (1.0 - z)*h + z*h_tilde
+        state['h'] = h_next
+
+        return h_next
 
 class EDGRU_Layer(GRU_Layer):
     def __init__(self, n_input, n_unit, hparams):

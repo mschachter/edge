@@ -1,2 +1,3 @@
 run_name: 'gru_text'
 rnn_type: 'GRU'
+prediction_signals: ['d_unexpected_entropy']

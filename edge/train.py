@@ -7,11 +7,15 @@ import sys, os
 import pprint
 import h5py
 import numpy as np
+import json
 
 from input_generator import Input_Generator
 import util.text_processing as text_proc
 from networks import Prediction_Network
 from sampler import Sampler
+
+np.random.seed(0)
+tf.set_random_seed(0)
 
 t_run_start = time.time()
 
@@ -47,7 +51,7 @@ if not os.path.exists(run_path):
 data_path = os.path.join(hparams['data_dir'], hparams['data_file'])
 
 train_text, valid_text, test_text, alphabet = \
-    text_proc.file_to_datasets(data_path)
+    text_proc.file_to_datasets(data_path, valid_fraction = .01)
 n_alphabet = len(alphabet)
 hparams['n_alphabet'] = n_alphabet
 hparams['alphabet'] = alphabet.tolist()
@@ -66,12 +70,13 @@ train_input_generator = Input_Generator(train_text, alphabet, n_batch, n_prop)
 graph = tf.Graph()
 with graph.as_default():
 
-    net = Prediction_Network(hparams)
+    with tf.name_scope('network_parameters'):
+        net = Prediction_Network(hparams)
 
     ## First we build the training graph
 
     # The network and it training state
-    with tf.name_scope('training'):
+    with tf.name_scope('input_data'):
         # The input nodes
         xs = [tf.placeholder(tf.float32, shape=[n_batch, n_alphabet]) for
             _ in xrange(n_prop + 1)]
@@ -82,20 +87,36 @@ with graph.as_default():
         errs = list()
         entropies = list()
 
-        train_state_store = net.get_new_state_store(n_batch)
-        train_state = net.state_from_store(train_state_store)
-
-        for (x_input, x_label) in zip(x_inputs, x_labels):
-            x_pred = net.step(train_state, x_input)
-            cross_entropy, entropy = net.evaluate_prediction(train_state, x_pred, x_label)
-            errs.append(cross_entropy)
+    with tf.name_scope('bptt_graph'):
 
 
-        train_err = tf.reduce_mean(tf.concat(0, errs))
+        with tf.name_scope('t_0'):
+            train_state_store = net.get_new_state_store(n_batch)
+            train_state = net.state_from_store(train_state_store)
+
+
+        for i in range(len(x_inputs)):
+            x_input = x_inputs[i]
+            x_label = x_labels[i]
+
+            with tf.name_scope('t_' + str(i+1)):
+                x_pred = net.step(train_state, x_input)
+                cross_entropy, entropy = net.evaluate_prediction(train_state, x_pred, x_label)
+
+                if i > hparams['n_reject']:
+                    errs.append(cross_entropy)
 
         # The update that allows state to carry across f-props
-        store_train_state = net.store_state_op(train_state, train_state_store)
-        reset_train_state = net.reset_state_op(train_state_store)
+        with tf.name_scope('save_state'):
+            store_train_state = net.store_state_op(train_state, train_state_store)
+            reset_train_state = net.reset_state_op(train_state_store)
+
+
+    with tf.name_scope('mean_error'):
+        train_err = tf.reduce_mean(tf.concat(0, errs))
+        train_summ = tf.scalar_summary('train error', train_err)
+
+
 
     # The optimizer
     with tf.name_scope('optimizer'):
@@ -131,6 +152,8 @@ valid_error_hist = []
 with tf.Session(graph=graph) as session:
     tf.initialize_all_variables().run()
 
+    merged = tf.merge_all_summaries()
+    writer = tf.train.SummaryWriter('/tmp/new_imp', graph_def = session.graph_def)
 
     for step in range(n_train_steps):
 
@@ -145,8 +168,9 @@ with tf.Session(graph=graph) as session:
         for i in range(n_prop + 1):
             feed_dict[xs[i]] = window[i]
 
-        to_compute = [train_err, eta, apply_grads, store_train_state]
-        error_val, eta_val = session.run(to_compute, feed_dict=feed_dict)[:2]
+        to_compute = [merged, train_err, eta, apply_grads, store_train_state]
+        summ_str, error_val, eta_val = session.run(to_compute, feed_dict=feed_dict)[:3]
+        writer.add_summary(summ_str, step)
 
         mean_error += error_val
 
@@ -160,7 +184,8 @@ with tf.Session(graph=graph) as session:
 
             if step % (summary_freq*10) == 0:
 
-                mean_valid_error = sampler.test_prediction_error(session, valid_text)
+                test_xents, test_ents = sampler.test_prediction_error(session, valid_text)
+                mean_valid_error = np.mean(test_xents)
 
                 valid_error_hist.append((step, mean_valid_error))
 
@@ -172,6 +197,21 @@ with tf.Session(graph=graph) as session:
     # save the model, params, and stats to the run dir
     model_file = os.path.join(run_path, 'model.ckpt')
     saver.save(session, model_file)
+
+    train_short = train_text[:10000]
+    train_xents, train_ents = sampler.test_prediction_error(session, train_short)
+    test_xents, test_ents = sampler.test_prediction_error(session, test_text)
+
+json_file = os.path.join(run_path, 'test_stats.json')
+with open(json_file, 'w') as f:
+    json.dump({'seq': alphabet[test_text[1:].tolist()].tolist(), 'cross_entropies': test_xents.tolist(),
+        'entropies': test_ents.tolist()}, f)
+
+json_file = os.path.join(run_path, 'train_stats.json')
+with open(json_file, 'w') as f:
+    json.dump({'seq': alphabet[train_short[1:].tolist()].tolist(), 'cross_entropies': train_xents.tolist(),
+        'entropies': train_ents.tolist()}, f)
+
 
 
 

@@ -37,7 +37,7 @@ class Prediction_Network(object):
 
         # create an ouput layer
         with tf.name_scope('ouput_layer'):
-            self.prediction_layer = layers.Softmax_Prediction_Layer(layer_inputs,
+            self.prediction_layer = layers.Softmax_Linear_Layer(layer_inputs,
                 self.n_input, hparams)
 
 
@@ -49,27 +49,38 @@ class Prediction_Network(object):
 
         for i, rnn_layer in enumerate(self.rnn_layers):
             layer_state = state[i]
-            layer_input = rnn_layer.step(layer_state, layer_input)
+            with tf.name_scope('step'):
+                layer_input = rnn_layer.step(layer_state, layer_input)
 
-        prediction = self.prediction_layer.output(layer_input)
+        with tf.name_scope('predict'):
+            prediction = self.prediction_layer.output(layer_input)
 
         return prediction
 
     def evaluate_prediction(self, state, prediction, x):
-        ent = entropy(prediction)
-        cross_ent = cross_entropy(prediction, x)
-        excess_ent = cross_ent
+        with tf.name_scope('evaluate_prediction'):
 
-        for i in range(len(self.rnn_layers)):
-            layer_state = state[i]
-            if 'entropy' in self.prediction_signals:
-                layer_state['entropy'] = ent
-            if 'excess_entropy' in self.prediction_signals:
-                layer_state['excess_entropy'] = excess_ent
-            if 'd_entropy' in self.prediction_signals:
-                layer_state['d_ent'] = tf.gradients(entropy, layer_state['h'])[0]
-            if 'd_excess_entropy' in self.prediction_signals:
-                layer_state['d_ex_ent'] = tf.gradients(excess_ent, layer_state['h'])[0]
+
+            with tf.name_scope('entropy'):
+                ent = entropy(prediction)
+            #cross_ent = tf.nn.softmax_cross_entropy_with_logits(prediction, x)
+            with tf.name_scope('cross_entropy'):
+                cross_ent = cross_entropy(prediction, x)
+
+            with tf.name_scope('unexpected_entropy'):
+                unexpected_ent = cross_ent # TODO this is hacked
+
+
+            for i in range(len(self.rnn_layers)):
+                layer_state = state[i]
+                if 'entropy' in self.prediction_signals:
+                    layer_state['entropy'] = ent
+                if 'unexpected_entropy' in self.prediction_signals:
+                    layer_state['unexpected_entropy'] = unexpected_ent
+                if 'd_entropy' in self.prediction_signals:
+                    layer_state['d_ent'] = tf.gradients(ent, layer_state['h'])[0]
+                if 'd_unexpected_entropy' in self.prediction_signals:
+                    layer_state['d_unex_ent'] = tf.gradients(unexpected_ent, layer_state['h'])[0]
 
         return cross_ent, ent
 
@@ -84,14 +95,14 @@ class Prediction_Network(object):
             if 'entropy' in self.prediction_signals:
                 layer_store['entropy'] = tf.Variable(tf.zeros([n_state, 1]),
                     name = 'entropy')
-            if 'excess_entropy' in self.prediction_signals:
-                layer_store['excess_entropy'] = tf.Variable(tf.zeros([n_state, 1]),
-                    name = 'excess_entropy')
+            if 'unexpected_entropy' in self.prediction_signals:
+                layer_store['unexpected_entropy'] = tf.Variable(tf.zeros([n_state, 1]),
+                    name = 'unexpected_entropy')
             if 'd_entropy' in self.prediction_signals:
                 layer_store['d_ent'] = tf.Variable(tf.zeros([n_state, rnn_layer.n_unit]),
                     trainable=False, name='d_ent')
-            if 'd_excess_entropy' in self.prediction_signals:
-                layer_store['d_ex_ent'] = tf.Variable(tf.zeros([n_state, rnn_layer.n_unit]),
+            if 'd_unexpected_entropy' in self.prediction_signals:
+                layer_store['d_unex_ent'] = tf.Variable(tf.zeros([n_state, rnn_layer.n_unit]),
                     trainable=False, name='d_ex_ext')
 
             state_store.append(layer_store)

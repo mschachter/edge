@@ -11,10 +11,11 @@ def string_to_alphabet_indices(string):
     alphabet = np.array(alphabet)
     alpha_ids = dict(zip(alphabet, range(len(alphabet))))
     indices = np.array(map(alpha_ids.get, string))
+
     return alphabet, indices
 
 def file_to_datasets(filename, valid_fraction = .05, test_fraction = .05,
-    to_lower = True):
+    to_lower = False):
 
     with open(filename, 'r') as data_file:
         text = data_file.read()

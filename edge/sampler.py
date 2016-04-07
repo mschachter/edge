@@ -21,35 +21,30 @@ class Sampler(object):
         self.alphabet = alphabet
 
 
-        with tf.name_scope('sampler'):
-            state_store = net.get_new_state_store(1)
+        state_store = net.get_new_state_store(1)
 
-            state = net.state_from_store(state_store)
-            self.x_cur = tf.placeholder(tf.float32, shape=[1, len(alphabet)])
-            self.prediction = net.step(state, self.x_cur)
-            self.store_post_pred = net.store_state_op(state, state_store)
+        state = net.state_from_store(state_store)
+        self.x_cur = tf.placeholder(tf.float32, shape=[1, len(alphabet)])
+        self.x_pred = net.step(state, self.x_cur)
 
+        self.x_next = tf.placeholder(tf.float32, shape=[1, len(alphabet)])
+        self.xent, self.ent = net.evaluate_prediction(state, self.x_pred, self.x_next)
 
-
-            state = net.state_from_store(state_store)
-            self.x_pred = tf.placeholder(tf.float32, shape=[1, len(alphabet)])
-            self.x_next = tf.placeholder(tf.float32, shape=[1, len(alphabet)])
-            self.xent, self.ent = net.evaluate_prediction(state, self.x_pred, self.x_next)
-            self.store_post_eval = net.store_state_op(state, state_store)
+        self.store_state = net.store_state_op(state, state_store)
 
 
 
-            self.reset_state = net.reset_state_op(state_store)
+        self.reset_state = net.reset_state_op(state_store)
 
     def predict(self, session, cur_x):
-        prediction = session.run([self.prediction, self.store_post_pred],
-            feed_dict = {self.x_cur: cur_x})[0]
+        prediction = session.run([self.x_pred], feed_dict = {self.x_cur: cur_x})[0]
         return prediction
 
-    def evaluate_prediction(self, session, pred_x, next_x):
-        feed = {self.x_next: next_x, self.x_pred: pred_x}
-        xent = session.run([self.xent, self.store_post_eval], feed)[0][0][0]
-        return xent
+    def evaluate_prediction(self, session, cur_x, pred_x, next_x):
+        feed = {self.x_next: next_x, self.x_pred: pred_x, self.x_cur: cur_x}
+        xent, ent = session.run([self.xent, self.ent, self.store_state], feed)[0:2]
+
+        return xent, ent
 
     def sample(self, session, prime='alice was ', n_sample = 500, bias = 0.0):
 
@@ -60,22 +55,22 @@ class Sampler(object):
         # Prime the network
         cur_x = textproc.char_to_onehot(prime[0], self.alphabet)
         for i in range(len(prime) - 1):
-            prediction = self.predict(session, cur_x)
+            pred_x = self.predict(session, cur_x)
             next_x = textproc.char_to_onehot(prime[i+1], self.alphabet)
             # Err needs to be computed even though not used in case
             # the network is error dynamic
-            self.evaluate_prediction(session, prediction, next_x)
+            self.evaluate_prediction(session, cur_x, pred_x, next_x)
             cur_x = next_x
 
         # Sample new inputs
         sample_string = ''
         for i in xrange(n_sample):
-            prediction = self.predict(session, cur_x)
-            alpha_id = sample_dist(prediction, bias)
+            pred_x = self.predict(session, cur_x)
+            alpha_id = sample_dist(pred_x, bias)
             sample_string += self.alphabet[alpha_id]
 
             next_x = textproc.id_to_onehot(alpha_id, self.alphabet)
-            self.evaluate_prediction(session, prediction, next_x)
+            self.evaluate_prediction(session, cur_x, pred_x, next_x)
             cur_x = next_x
 
         return prime, sample_string
@@ -84,11 +79,15 @@ class Sampler(object):
         session.run(self.reset_state)
 
         cur_x = textproc.id_to_onehot(test_text[0], self.alphabet)
-        mean_err = 0.0
+
+        xents = np.zeros(len(test_text))
+        ents = np.zeros(len(test_text))
+
         for i in range(len(test_text) - 1):
-            prediction = self.predict(session, cur_x)
+            pred_x = self.predict(session, cur_x)
             next_x = textproc.id_to_onehot(test_text[i+1], self.alphabet)
-            mean_err += self.evaluate_prediction(session, prediction, next_x)
+            (xent, ent) = self.evaluate_prediction(session, cur_x, pred_x, next_x)
+            xents[i], ents[i] = xent[0], ent[0]
             cur_x = next_x
 
-        return mean_err/(len(test_text)  -1)
+        return xents, ents

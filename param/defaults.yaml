@@ -1,16 +1,18 @@
 run_dir: 'runs'
 
 data_dir: 'data'
-data_file: 'text/alice_in_wonderland.txt'
+data_file: 'text/war_and_peace.txt'
 
-n_unit: 300
+rnn_layers: [300]
+prediction_signals: []
 
-n_prop: 20
+n_prop: 100
+n_reject: 10
 n_batch: 100
-n_train_steps: 7001 # number of forward prop steps
+n_train_steps: 1001 # number of forward prop steps
 
 train_state_reset_rate: 6000 # in input steps
 
 grad_clip_norm: 1.0
 
-opt_algorithm: adam
+opt_algorithm: 'adam'
