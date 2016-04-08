@@ -61,7 +61,7 @@ class ParticleSystem(object):
                 xd = xy1 - xy2
                 xd /= np.linalg.norm(xd)
                 f = _force(d)
-                F[k, :] += -f*xd
+                F[k, :] += f*xd
 
         return F
 
@@ -103,5 +103,5 @@ class ParticleSystem(object):
 
 
 if __name__ == '__main__':
-    sys = ParticleSystem(10, extent=(-1e-3, 1e-3, -0.5e-3, 0.5e-3))
+    sys = ParticleSystem(20, extent=(-1e-3, 1e-3, -0.5e-3, 0.5e-3))
     sys.simulate(1.0)
