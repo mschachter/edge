@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from lasp.colormaps import magma
 
 
 class EITopoNet(object):
@@ -28,12 +29,15 @@ class EITopoNet(object):
         print 'Size of neural sheet: %0.3fmm wide by %0.3fmm tall' % (sheet_width, sheet_height)
         print '# of excitatory=%d (%d%%), # of inhibitory=%d (%d%%)' % (num_e, frac_e*100, num_i, frac_i*100)
 
-        Xe,Ye = np.meshgrid(np.linspace(extent[0], extent[1], num_e_rows), np.linspace(extent[2], extent[3], num_e_cols))
-        Xi,Yi = np.meshgrid(np.linspace(extent[0], extent[1], num_i_rows), np.linspace(extent[2], extent[3], num_i_cols))
+        Xe,Ye = np.meshgrid(np.linspace(extent[0], extent[1], num_e_cols), np.linspace(extent[2], extent[3], num_e_rows))
+        Xi,Yi = np.meshgrid(np.linspace(extent[0], extent[1], num_i_cols), np.linspace(extent[2], extent[3], num_i_rows))
         locs_e = zip(Xe.ravel(), Ye.ravel())
         locs_i = zip(Xi.ravel(), Yi.ravel())
 
         locs_all = np.vstack((locs_e, locs_i))
+
+        # jitter the neurons
+        locs_all += 2e-3*(np.random.rand(num_total, 2) - 0.5)*30
 
         # compute the distances in microns between each neuron
         D = np.zeros([num_total, num_total])
@@ -51,15 +55,15 @@ class EITopoNet(object):
         gs = plt.GridSpec(100, 1)
 
         ax = plt.subplot(gs[:30, 0])
-        ms = 8.0
+        ms = 12.0
         plt.plot(locs_all[:num_e, 0], locs_all[:num_e, 1], 'ro', alpha=0.7, markersize=ms)
         plt.plot(locs_all[num_e:, 0], locs_all[num_e:, 1], 'bo', alpha=0.7, markersize=ms)
         plt.title("Neuron Locations")
         plt.legend(['Excitatory', 'Inhibitory'])
 
         ax = plt.subplot(gs[35:, 0])
-        plt.imshow(D, interpolation='nearest', aspect='auto', extent=extent, cmap=plt.cm.afmhot)
-        plt.colorbar()
+        plt.imshow(D, interpolation='nearest', aspect='auto', extent=extent, cmap=magma)
+        plt.colorbar(label='Distance (mm)')
         plt.title("Neuron-to-neuron distance matrix")
 
         plt.show()
@@ -67,8 +71,10 @@ class EITopoNet(object):
 
 if __name__ == '__main__':
 
-    e_density = 19. # neurons per mm
-    i_density = 11. # neurons per mm
+    # e_density = 19. # neurons per mm
+    # i_density = 11. # neurons per mm
+    e_density = 3. # neurons per mm
+    i_density = 1. # neurons per mm
 
     net = EITopoNet()
     net.construct(e_density, i_density)
