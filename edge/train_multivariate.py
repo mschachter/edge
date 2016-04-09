@@ -333,7 +333,7 @@ if __name__ == '__main__':
     sign_mat = np.ones([n_hid, n_hid])
     for k in range(n_hid):
         if k % 2 == 0:
-            sign_mat[:, k] *= -1.
+            sign_mat[k, :] *= -1.
 
     hparams['sign_constrain_R'] = sign_mat
 

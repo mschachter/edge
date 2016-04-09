@@ -7,9 +7,13 @@ from lasp.plots import grouped_boxplot
 class EITopoNet(object):
 
     def __init__(self):
-        pass
+        self.D = None
+        self.locs = None
+        self.num_e = None
+        self.num_i = None
+        self.extent = None
 
-    def construct(self, num_excitatory, num_inhibitory, extent=(-1, 1, -0.5, 0.5)):
+    def construct(self, num_excitatory, num_inhibitory, extent=(-1, 1, -0.5, 0.5), plot=False):
         """ Create a network that is arranged in a 2D grid. """
 
         sheet_width = extent[1] - extent[0]
@@ -89,27 +93,47 @@ class EITopoNet(object):
         num_neighbors_by_conn_type['I->I'] = [num_neighbors[num_e:, 1]]
         num_neighbors_by_conn_type['I->E'] = [num_neighbors[num_e:, 0]]
 
-        # plot the network and distance matrix
-        plt.figure()
-        gs = plt.GridSpec(100, 100)
+        for nn_type,nn_samps in num_neighbors_by_conn_type.items():
+            print("# of %s neighbors within %dum: %d +/- %d" % (nn_type, dthresh*1e3, nn_samps[0].mean(), nn_samps[0].std(ddof=1)))
 
-        ax = plt.subplot(gs[:30, :60])
-        ms = 12.0
-        plt.plot(locs_all[:num_e, 0], locs_all[:num_e, 1], 'ro', alpha=0.7, markersize=ms)
-        plt.plot(locs_all[num_e:, 0], locs_all[num_e:, 1], 'bo', alpha=0.7, markersize=ms)
-        plt.title("Neuron Locations")
-        plt.legend(['Excitatory', 'Inhibitory'])
-        plt.axis('tight')
+        # construct sign matrix for distinguishing inhibitory vs excitatory neurons
+        S = np.ones([num_total, num_total])
+        S[num_e:, :] *= -1.
 
-        ax = plt.subplot(gs[:30, 65:])
-        grouped_boxplot(num_neighbors_by_conn_type, group_names=['E->E', 'E->I', 'I->I', 'I->E'], ax=ax)
+        if plot:
+            # plot the network and distance matrix
+            fig = plt.figure()
+            fig.subplots_adjust(top=0.95, bottom=0.02, right=0.97, left=0.03, hspace=0.35, wspace=0.35)
 
-        ax = plt.subplot(gs[35:, :])
-        plt.imshow(D, interpolation='nearest', aspect='auto', extent=extent, cmap=magma)
-        plt.colorbar(label='Distance (mm)')
-        plt.title("Neuron-to-neuron distance matrix")
+            gs = plt.GridSpec(100, 100)
 
-        plt.show()
+            ax = plt.subplot(gs[:30, :60])
+            ms = 12.0
+            plt.plot(locs_all[:num_e, 0], locs_all[:num_e, 1], 'ro', alpha=0.7, markersize=ms)
+            plt.plot(locs_all[num_e:, 0], locs_all[num_e:, 1], 'bo', alpha=0.7, markersize=ms)
+            plt.title("Neuron Locations")
+            plt.legend(['Excitatory', 'Inhibitory'])
+            plt.xlabel('Location (mm)')
+            plt.ylabel('Location (mm)')
+            plt.axis('tight')
+
+            ax = plt.subplot(gs[:30, 65:])
+            grouped_boxplot(num_neighbors_by_conn_type, group_names=['E->E', 'E->I', 'I->I', 'I->E'], ax=ax)
+            plt.title('# of neighbors within %d um by connection type' % (dthresh*1e3))
+
+            ax = plt.subplot(gs[40:, 10:90])
+            plt.imshow(D, interpolation='nearest', aspect='auto', extent=extent, cmap=magma)
+            plt.colorbar(label='Distance (mm)')
+            plt.title("Neuron-to-neuron distance matrix")
+
+            plt.show()
+
+        self.D = D
+        self.S = S
+        self.locs = locs_all
+        self.num_e = num_e
+        self.num_i = num_i
+        self.extent = extent
 
 
 if __name__ == '__main__':
@@ -120,7 +144,7 @@ if __name__ == '__main__':
     num_i = num_total - num_e
 
     net = EITopoNet()
-    net.construct(num_e, num_i)
+    net.construct(num_e, num_i, plot=True)
 
 
 
