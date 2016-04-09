@@ -79,47 +79,42 @@ class MultivariateRNNTrainer(object):
 
     def create_batch_train_op(self):
 
+        batch_size = self.hparams['batch_size']
+
         # the input placeholder, contains the entire multivariate input time series for a batch
-        U = tf.placeholder(tf.float32, shape=[self.hparams['batch_size'], self.hparams['t_mem'], self.hparams['n_in']])
+        U = tf.placeholder(tf.float32, shape=[batch_size, self.hparams['t_mem'], self.hparams['n_in']])
 
         # the output placeholder, contains the desired multivariate output time series for a batch
-        Y = tf.placeholder(tf.float32, shape=[self.hparams['batch_size'], self.hparams['t_mem'], self.hparams['n_out']])
+        Y = tf.placeholder(tf.float32, shape=[batch_size, self.hparams['t_mem'], self.hparams['n_out']])
 
-        # the initial state placeholder, contains the initial state used at the beginning of a batch
-        h = tf.placeholder(tf.float32, shape=[1, self.hparams['n_unit']])
+        # the initial state placeholder, contains the initial state used at the beginning of a batch,
+        # for each batch
+        h = tf.placeholder(tf.float32, shape=[batch_size, self.hparams['n_unit']])
         hnext = h
         lambda2_val = self.hparams['lambda2']
         l2_cost = self.net.l2_W(lambda2_val) + self.net.l2_R(lambda2_val) + self.net.l2_Wout(lambda2_val)
 
         # The forward propagation graph
         batch_err_list = list()
-        # batch_net_preds = list()
-        for b in range(self.hparams['batch_size']):
+        # net_preds = list()
+        for t in range(self.hparams['t_mem']):
+            # construct the input vector at time t by slicing the input placeholder U, do the same for Y
+            u = tf.reshape(tf.slice(U, [0, t, 0], [batch_size, 1, self.hparams['n_in']]), [batch_size, self.hparams['n_in']])
+            y = tf.reshape(tf.slice(Y, [0, t, 0], [batch_size, 1, self.hparams['n_out']]), [batch_size, self.hparams['n_out']])
 
-            net_err_list = list()
-            # net_preds = list()
-            for t in range(self.hparams['t_mem']):
-                # construct the input vector at time t by slicing the input placeholder U, do the same for Y
-                u = tf.reshape(tf.slice(U, [b, t, 0], [1, 1, self.hparams['n_in']]), [1, self.hparams['n_in']])
-                y = tf.reshape(tf.slice(Y, [b, t, 0], [1, 1, self.hparams['n_out']]), [1, self.hparams['n_out']])
+            # create an op to move the network state forward one time step, given the input
+            # vector u and previous hidden state h. do this for all batches in parallel
+            (hnext,), yhat = self.net.step((hnext,), u)
 
-                # create an op to move the network state forward one time step, given the input
-                # vector u and previous hidden state h
-                (hnext,), yhat = self.net.step((hnext,), u)
+            # save the prediction op for this time step
+            # net_preds.append(yhat)
 
-                # save the prediction op for this time step
-                # net_preds.append(yhat)
+            # compute the cost at time t across all batches
+            mse = tf.reduce_mean(tf.reshape(tf.square(y - yhat), [-1]))
+            err = mse + l2_cost
+            batch_err_list.append(tf.expand_dims(err, 0))
 
-                # compute the cost at time t
-                mse = tf.reduce_mean(tf.squeeze(tf.square(y - yhat)))
-                err = mse + l2_cost
-                net_err_list.append(tf.expand_dims(err, 0))
-
-            # compute the overall training error, the mean of the mean square error at each time point
-            net_err_list = tf.concat(0, net_err_list)
-            net_err = tf.reduce_mean(net_err_list)
-            batch_err_list.append(tf.expand_dims(net_err, 0))
-            # batch_net_preds.append(net_preds)
+        # compute the overall training error, the mean of the mean square error at each time point
         batch_err_list = tf.concat(0, batch_err_list)
         batch_err = tf.reduce_mean(batch_err_list)
 
@@ -151,17 +146,15 @@ class MultivariateRNNTrainer(object):
     def train(self, Utrain, Ytrain, Utest=None, Ytest=None, test_check_interval=5):
 
         n_train_steps = self.hparams['n_train_steps']
-        n_samps = Utrain.shape[0]
-        assert Ytrain.shape[0] == n_samps
-
-        n_samps_per_batch = self.hparams['batch_size']
-        n_batches = int(n_samps / n_samps_per_batch)
-        print('# of samples: %d' % n_samps)
-        print('# of batches: %d' % n_batches)
+        
+        n_batches,n_segs_per_batch,t_mem,n_in = Utrain.shape
+        n_batches2,n_segs_per_batch2,t_mem2,n_out = Ytrain.shape
+        assert n_batches == n_batches2
+        assert n_segs_per_batch == n_segs_per_batch2
+        assert t_mem == t_mem2
 
         # create a random initial state to start with
-        h0_orig = np.random.randn(self.hparams['n_unit']) * 1e-3
-        h0_orig = h0_orig.reshape([1, self.hparams['n_unit']])
+        h0_orig = np.random.randn(n_batches, self.hparams['n_unit']) * 1e-3
         h0 = h0_orig
 
         test_check = False
@@ -183,14 +176,12 @@ class MultivariateRNNTrainer(object):
 
                 stime = time.time()
                 eta_val = None
-                batch_errs = list()
-                for b in range(n_batches):
-                    batch_i = b*n_samps_per_batch
-                    batch_e = batch_i + n_samps_per_batch
+                seg_errs = list()
+                for seg in range(n_segs_per_batch):
 
                     # put the input and output matrices in the feed dictionary for this minibatch
-                    Uk = Utrain[batch_i:batch_e, :, :]
-                    Yk = Ytrain[batch_i:batch_e, :, :]
+                    Uk = Utrain[:, seg, :, :]
+                    Yk = Ytrain[:, seg, :, :]
                     feed_dict = {self.train_vars['U']:Uk, self.train_vars['Y']:Yk, self.train_vars['h']:h0}
 
                     # run the session to train the model for this minibatch
@@ -202,14 +193,16 @@ class MultivariateRNNTrainer(object):
 
                     # get the last hidden state value to use on the next minibatch
                     h0 = hnext_val
-                    batch_errs.append(train_error_val)
+                    seg_errs.append(train_error_val)
 
-                batch_errs = np.array(batch_errs)
-                epoch_errs.append(batch_errs)
+                seg_errs = np.array(seg_errs)
+                epoch_errs.append(seg_errs)
 
                 test_err = np.nan
                 if test_check and ((step % test_check_interval == 0) or (step == n_train_steps-1)):
-                    Yhat = session.run(self.run_vars['net_preds'], feed_dict={self.run_vars['U']:Utest, self.run_vars['h']:h0})
+                    # average initial states across batches to get an initial state for the test set
+                    h0_mean = h0.mean(axis=0).reshape([1, n_hid])
+                    Yhat = session.run(self.run_vars['net_preds'], feed_dict={self.run_vars['U']:Utest, self.run_vars['h']:h0_mean})
                     Yhat = np.array(Yhat).squeeze()
                     test_err = np.mean((Yhat - Ytest)**2)
                     epoch_test_errs.append((step, test_err))
@@ -217,7 +210,7 @@ class MultivariateRNNTrainer(object):
 
                 etime = time.time() - stime
                 print('iter=%d, eta=%0.6f, train_err=%0.6f +/- %0.6f, test_err=%0.6f, time=%0.3fs' % \
-                      (step, eta_val, batch_errs.mean(), batch_errs.std(ddof=1), test_err, etime))
+                      (step, eta_val, seg_errs.mean(), seg_errs.std(ddof=1), test_err, etime))
 
             self.epoch_errs = np.array(epoch_errs)
             self.epoch_test_errs = np.array(epoch_test_errs)
@@ -287,7 +280,7 @@ if __name__ == '__main__':
     n_hid_data = 4
     n_hid = 20
     n_out = 3
-    t_in = 5000
+    t_in = 10000
 
     # the "memory" of the network, how many time steps BPTT is run for
     t_mem = 20
@@ -298,6 +291,16 @@ if __name__ == '__main__':
 
     # create some fake data for training
     Utrain, Xtrain, Ytrain, sample_params = create_sample_data(n_in, n_hid_data, n_out, t_in, n_samps, segment_U=True)
+
+    # segment the training data into parallel batches, each batch is a continuous temporal segment of data
+    # broken down into segments of length t_mem
+    nsegs = Utrain.shape[0]
+    n_batches = 10
+    Utrain = Utrain.reshape([n_batches, nsegs/n_batches, t_mem, n_in])
+    Ytrain = Ytrain.reshape([n_batches, nsegs/n_batches, t_mem, n_out])
+
+    print("Utrain.shape=" + str(Utrain.shape))
+    print("Ytrain.shape=" + str(Ytrain.shape))
 
     """
     plt.figure()
@@ -325,7 +328,7 @@ if __name__ == '__main__':
                                                           Wout=sample_params['Wout'],
                                                           bout=sample_params['bout'])
 
-    hparams = {'rnn_type':'SRNN', 'opt_algorithm':'annealed_sgd', 'n_train_steps':25, 'batch_size':1,
+    hparams = {'rnn_type':'SRNN', 'opt_algorithm':'annealed_sgd', 'n_train_steps':25, 'batch_size':n_batches,
                'n_in':n_in, 'n_out':n_out, 'n_unit':n_hid, 'activation':'relu',
                'dropout':{'R':0.0, 'W':0.0}, 'lambda2':1e-1, 't_mem':t_mem, 't_run':Utest.shape[0],
                'eta0':5e-2}

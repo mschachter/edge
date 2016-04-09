@@ -8,6 +8,7 @@ class EITopoNet(object):
 
     def __init__(self):
         self.D = None
+        self.S = None
         self.locs = None
         self.num_e = None
         self.num_i = None
