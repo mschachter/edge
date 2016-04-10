@@ -236,28 +236,29 @@ class MultivariateRNNTrainer(object):
 
         return Yhat.reshape([n_segs, t_mem_run, self.hparams['n_out']])
 
-    def plot(self, Utest, Ytest):
+    def plot(self, Utest, Ytest, text_only=False):
         n_train_steps = self.hparams['n_train_steps']
 
-        plt.figure()
-        gs = plt.GridSpec(100, 100)
+        if not text_only:
+            plt.figure()
+            gs = plt.GridSpec(100, 100)
 
-        ax = plt.subplot(gs[:45, :30])
-        plt.errorbar(range(n_train_steps), self.epoch_errs.mean(axis=1), yerr=self.epoch_errs.std(axis=1, ddof=1),
-                     linewidth=4.0, c='r', alpha=0.7, elinewidth=2.0, ecolor='k')
-        plt.axis('tight')
-        plt.xlabel('Epoch')
-        plt.ylabel('Training Error')
-        plt.title('Training Error')
+            ax = plt.subplot(gs[:45, :30])
+            plt.errorbar(range(n_train_steps), self.epoch_errs.mean(axis=1), yerr=self.epoch_errs.std(axis=1, ddof=1),
+                         linewidth=4.0, c='r', alpha=0.7, elinewidth=2.0, ecolor='k')
+            plt.axis('tight')
+            plt.xlabel('Epoch')
+            plt.ylabel('Training Error')
+            plt.title('Training Error')
 
-        ax = plt.subplot(gs[50:, :30])
-        test_x = self.epoch_test_errs[:, 0]
-        test_err = self.epoch_test_errs[:, 1]
-        plt.plot(test_x, test_err, linewidth=4.0, c='b', alpha=0.7)
-        plt.axis('tight')
-        plt.xlabel('Epoch')
-        plt.ylabel('Test Error')
-        plt.title('Test Error')
+            ax = plt.subplot(gs[50:, :30])
+            test_x = self.epoch_test_errs[:, 0]
+            test_err = self.epoch_test_errs[:, 1]
+            plt.plot(test_x, test_err, linewidth=4.0, c='b', alpha=0.7)
+            plt.axis('tight')
+            plt.xlabel('Epoch')
+            plt.ylabel('Test Error')
+            plt.title('Test Error')
 
         n_segs_test,t_test_run,n_out = self.test_preds.shape
         ns,nt,nf = Ytest.shape
@@ -266,30 +267,35 @@ class MultivariateRNNTrainer(object):
         row_padding = 5
 
         for k in range(nf):
-            gs_i = k*nrows_per_plot
-            gs_e = ((k+1)*nrows_per_plot)-row_padding
-            ax = plt.subplot(gs[gs_i:gs_e, 35:])
-
             yt = Ytest[:, :, k].reshape([n_segs_test*t_test_run])
             yhatt = self.test_preds[:, :, k].reshape([n_segs_test*t_test_run])
             ycc = np.corrcoef(yt, yhatt)[0, 1]
 
-            plt.plot(yt, 'k-', linewidth=4.0, alpha=0.7)
-            plt.plot(yhatt, 'r-', linewidth=4.0, alpha=0.7)
-            plt.axis('tight')
-            # plt.xlabel('Time')
-            plt.ylabel('Y(t)')
-            plt.legend(['Real', 'Prediction'])
-            plt.title('cc=%0.2f' % ycc)
+            if text_only:
+                print("Output %d: cc=%0.2f" % (k, ycc))
 
-        plt.figure()
-        R = self.trained_params['R']
-        absmax = np.abs(R).max()
-        plt.imshow(R, interpolation='nearest', aspect='auto', vmin=-absmax, vmax=absmax, cmap=plt.cm.seismic)
-        plt.colorbar()
-        plt.title('Recurrent Weight Matrix')
+            else:
+                gs_i = k*nrows_per_plot
+                gs_e = ((k+1)*nrows_per_plot)-row_padding
+                ax = plt.subplot(gs[gs_i:gs_e, 35:])
 
-        plt.show()
+                plt.plot(yt, 'k-', linewidth=4.0, alpha=0.7)
+                plt.plot(yhatt, 'r-', linewidth=4.0, alpha=0.7)
+                plt.axis('tight')
+                # plt.xlabel('Time')
+                plt.ylabel('Y(t)')
+                plt.legend(['Real', 'Prediction'])
+                plt.title('cc=%0.2f' % ycc)
+
+        if not text_only:
+            plt.figure()
+            R = self.trained_params['R']
+            absmax = np.abs(R).max()
+            plt.imshow(R, interpolation='nearest', aspect='auto', vmin=-absmax, vmax=absmax, cmap=plt.cm.seismic)
+            plt.colorbar()
+            plt.title('Recurrent Weight Matrix')
+
+            plt.show()
 
 
 if __name__ == '__main__':
@@ -354,7 +360,7 @@ if __name__ == '__main__':
     print("Ytest.shape=" + str(Ytest.shape))
 
     hparams = {'rnn_type':'SRNN', 'n_in':n_in, 'n_out':n_out, 'n_unit':n_hid, 'activation':'relu', 't_mem':t_mem,
-               'opt_algorithm':'annealed_sgd', 'n_train_steps':10, 'batch_size':n_batches, 'eta0':5e-2,
+               'opt_algorithm':'annealed_sgd', 'n_train_steps':25, 'batch_size':n_batches, 'eta0':5e-2,
                'dropout':{'R':0.0, 'W':0.0}, 'lambda2':1e-1,
                't_mem_run':Utest.shape[1],
                }
@@ -371,4 +377,4 @@ if __name__ == '__main__':
     print("Training network...")
     rnn_trainer.train(Utrain, Ytrain, Utest, Ytest)
     print("Plotting network...")
-    rnn_trainer.plot(Utest, Ytest)
+    rnn_trainer.plot(Utest, Ytest, text_only=False)
