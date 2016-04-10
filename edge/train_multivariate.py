@@ -1,5 +1,7 @@
 from __future__ import division
 
+from copy import deepcopy
+
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -74,7 +76,7 @@ class MultivariateRNNTrainer(object):
             self.train_vars['apply_grads'] = apply_grads
             self.train_vars['R'] = self.net.rnn_layer.R
 
-            if 'sign_constrain_R' in hparams:
+            if 'sign_constrain_R' in self.hparams:
                 self.train_vars['sign_constrain_R'] = self.net.sign_constraint_R(hparams['sign_constrain_R'])
 
     def create_batch_train_op(self):
@@ -121,9 +123,8 @@ class MultivariateRNNTrainer(object):
         return {'U':U, 'Y':Y, 'batch_err':batch_err, 'h':h, 'hnext':hnext}
 
     def create_run_op(self):
-
         # the input placeholder, contains the entire multivariate input time series for a batch
-        U = tf.placeholder(tf.float32, shape=[self.hparams['t_run'], self.hparams['n_in']])
+        U = tf.placeholder(tf.float32, shape=[self.hparams['t_mem_run'], self.hparams['n_in']])
 
         # the initial state placeholder, contains the initial state used at the beginning of a batch
         h = tf.placeholder(tf.float32, shape=[1, self.hparams['n_unit']])
@@ -131,8 +132,7 @@ class MultivariateRNNTrainer(object):
 
         # list to hold network outputs
         net_preds = list()
-
-        for t in range(self.hparams['t_run']):
+        for t in range(self.hparams['t_mem_run']):
             # construct the input vector at time t by slicing the input placeholder U, do the same for Y
             u = tf.slice(U, [t, 0], [1, self.hparams['n_in']])
 
@@ -201,9 +201,8 @@ class MultivariateRNNTrainer(object):
                 test_err = np.nan
                 if test_check and ((step % test_check_interval == 0) or (step == n_train_steps-1)):
                     # average initial states across batches to get an initial state for the test set
-                    h0_mean = h0.mean(axis=0).reshape([1, n_hid])
-                    Yhat = session.run(self.run_vars['net_preds'], feed_dict={self.run_vars['U']:Utest, self.run_vars['h']:h0_mean})
-                    Yhat = np.array(Yhat).squeeze()
+                    h0_mean = h0.mean(axis=0).reshape([1, self.hparams['n_unit']])
+                    Yhat = self.run_network(Utest, h0_mean, session)
                     test_err = np.mean((Yhat - Ytest)**2)
                     epoch_test_errs.append((step, test_err))
                     self.test_preds = Yhat
@@ -216,6 +215,26 @@ class MultivariateRNNTrainer(object):
             self.epoch_test_errs = np.array(epoch_test_errs)
 
             self.trained_params = {'R':session.run(self.train_vars['R'])}
+
+    def run_network(self, U, h0, session):
+        n_segs,t_mem_run,n_in = U.shape
+        Yhat = np.zeros([t_mem_run*n_segs, self.hparams['n_out']])
+        h = h0
+
+        to_compute = list()
+        to_compute.extend(self.run_vars['net_preds'])
+        to_compute.append(self.run_vars['hnext'])
+
+        for k in range(n_segs):
+            si = k*t_mem_run
+            ei = si + t_mem_run
+            compute_vals = session.run(to_compute,
+                                       feed_dict={self.run_vars['U']:U[k, :, :], self.run_vars['h']:h})
+            ypred = np.array(compute_vals[:-1]).squeeze()
+            h = np.array(compute_vals[-1])
+            Yhat[si:ei, :] = ypred
+
+        return Yhat.reshape([n_segs, t_mem_run, self.hparams['n_out']])
 
     def plot(self, Utest, Ytest):
         n_train_steps = self.hparams['n_train_steps']
@@ -240,8 +259,9 @@ class MultivariateRNNTrainer(object):
         plt.ylabel('Test Error')
         plt.title('Test Error')
 
-        Yhat_t = self.test_preds
-        nt,nf = Ytest.shape
+        n_segs_test,t_test_run,n_out = self.test_preds.shape
+        ns,nt,nf = Ytest.shape
+        assert nf == n_out
         nrows_per_plot = int(100. / nf)
         row_padding = 5
 
@@ -250,8 +270,8 @@ class MultivariateRNNTrainer(object):
             gs_e = ((k+1)*nrows_per_plot)-row_padding
             ax = plt.subplot(gs[gs_i:gs_e, 35:])
 
-            yt = Ytest[:, k]
-            yhatt = Yhat_t[:, k]
+            yt = Ytest[:, :, k].reshape([n_segs_test*t_test_run])
+            yhatt = self.test_preds[:, :, k].reshape([n_segs_test*t_test_run])
             ycc = np.corrcoef(yt, yhatt)[0, 1]
 
             plt.plot(yt, 'k-', linewidth=4.0, alpha=0.7)
@@ -319,19 +339,25 @@ if __name__ == '__main__':
     """
 
     # create some fake data for validation
-    t_in_test = 1000
-    n_samps_test = int(t_in_test / t_mem)
-    Utest,Xtest,Ytest,sample_params2 = create_sample_data(n_in, n_hid_data, n_out, t_in_test, n_samps_test, segment_U=False,
+    t_mem_run = 50
+    t_test_total = 1000
+    n_test_segs = int(t_test_total / t_mem_run)
+
+    Utest,Xtest,Ytest,sample_params2 = create_sample_data(n_in, n_hid_data, n_out, t_test_total, n_test_segs, segment_U=True,
                                                           Win=sample_params['Win'],
                                                           W=sample_params['W'],
                                                           b=sample_params['b'],
                                                           Wout=sample_params['Wout'],
                                                           bout=sample_params['bout'])
 
-    hparams = {'rnn_type':'SRNN', 'opt_algorithm':'annealed_sgd', 'n_train_steps':25, 'batch_size':n_batches,
-               'n_in':n_in, 'n_out':n_out, 'n_unit':n_hid, 'activation':'relu',
-               'dropout':{'R':0.0, 'W':0.0}, 'lambda2':1e-1, 't_mem':t_mem, 't_run':Utest.shape[0],
-               'eta0':5e-2}
+    print("Utest.shape=" + str(Utest.shape))
+    print("Ytest.shape=" + str(Ytest.shape))
+
+    hparams = {'rnn_type':'SRNN', 'n_in':n_in, 'n_out':n_out, 'n_unit':n_hid, 'activation':'relu', 't_mem':t_mem,
+               'opt_algorithm':'annealed_sgd', 'n_train_steps':10, 'batch_size':n_batches, 'eta0':5e-2,
+               'dropout':{'R':0.0, 'W':0.0}, 'lambda2':1e-1,
+               't_mem_run':Utest.shape[1],
+               }
 
     sign_mat = np.ones([n_hid, n_hid])
     for k in range(n_hid):
