@@ -59,7 +59,8 @@ class MultivariateRNNTrainer(object):
                 eta = None
 
                 if self.hparams['opt_algorithm'] == 'adam':
-                    eta = tf.train.exponential_decay(self.hparams['eta0'], t, 2000, 0.5, staircase=True)
+                    # eta = tf.train.exponential_decay(self.hparams['eta0'], t, 2000, 0.5, staircase=True)
+                    eta = tf.Variable(self.hparams['eta0'])
                     self.optimizer = tf.train.AdamOptimizer(learning_rate=eta)
 
                 elif self.hparams['opt_algorithm'] == 'annealed_sgd':
