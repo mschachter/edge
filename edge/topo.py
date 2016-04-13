@@ -136,6 +136,26 @@ class EITopoNet(object):
         self.num_i = num_i
         self.extent = extent
 
+    def get_cost(self, func_type='exp', scale=1.):
+        """ Returns a cost for each connection in the network.
+
+        :param func_type: The following types of functions are available:
+                            'exp'     f(d) = exp(d*scale)-1
+                            'linear'  f(d) = d*scale
+                            'log'     f(d) = log(1 + d*scale)
+        :param scale: The scale parameter used for the function.
+        """
+
+        f = None
+        if func_type == 'exp':
+            f = lambda d: np.exp(d*scale)-1.
+        elif func_type == 'linear':
+            f = lambda d: d*scale
+        elif func_type == 'log':
+            f = lambda d: np.log(1 + d*scale)
+
+        return f(self.D)
+
 
 if __name__ == '__main__':
 
