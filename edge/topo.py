@@ -99,7 +99,7 @@ class EITopoNet(object):
 
         # construct sign matrix for distinguishing inhibitory vs excitatory neurons
         S = np.ones([num_total, num_total])
-        S[num_e:, :] *= -1.
+        S[num_e:, :] = -1
 
         if plot:
             # plot the network and distance matrix
@@ -136,25 +136,77 @@ class EITopoNet(object):
         self.num_i = num_i
         self.extent = extent
 
-    def get_cost(self, func_type='exp', scale=1.):
+    def get_cost(self, func_type='exp', e_scale=1., i_scale=1.,
+                 ei_strength=0.20, ie_strength=1.0, ee_strength=0.20, ii_strength=1.0,
+                 plot=False):
         """ Returns a cost for each connection in the network.
 
         :param func_type: The following types of functions are available:
                             'exp'     f(d) = exp(d*scale)-1
                             'linear'  f(d) = d*scale
                             'log'     f(d) = log(1 + d*scale)
-        :param scale: The scale parameter used for the function.
         """
 
         f = None
         if func_type == 'exp':
-            f = lambda d: np.exp(d*scale)-1.
+            f = lambda d,s: np.exp(d*s)-1.
         elif func_type == 'linear':
-            f = lambda d: d*scale
+            f = lambda d,s: d*s
         elif func_type == 'log':
-            f = lambda d: np.log(1 + d*scale)
+            f = lambda d,s: np.log(1 + d*s)
 
-        return f(self.D)
+        ntot = self.num_e + self.num_i
+        dist_cost = np.zeros([ntot, ntot])
+
+        # set the distance costs for excitatory connections
+        dist_cost[:self.num_e, :] = f(self.D[:self.num_e, :], e_scale)
+
+        # set the distance cost for inhibitory connections
+        dist_cost[self.num_i:, :] = f(self.D[self.num_i:, :], i_scale)
+
+        # set the connection strength regularizers
+        type_cost = np.zeros([ntot, ntot])
+
+        # set E-E connection strengths
+        type_cost[:self.num_e, :self.num_e] = ee_strength
+
+        # set E-I connection strengths
+        type_cost[:self.num_e, self.num_e:] = ei_strength
+
+        # set I-E connection strengths
+        type_cost[self.num_e:, :self.num_e] = ie_strength
+
+        # set I-I connection strengths
+        type_cost[self.num_e:, self.num_e:] = ii_strength
+
+        # multiply distance and connection strength costs to get total L2 cost
+        l2_mat = dist_cost * type_cost
+
+        if plot:
+            plt.figure()
+            ax = plt.subplot(2, 2, 1)
+            plt.imshow(dist_cost, interpolation='nearest', aspect='auto', cmap=magma, vmin=0)
+            plt.title("Distance Cost")
+            plt.colorbar()
+
+            ax = plt.subplot(2, 2, 2)
+            plt.imshow(type_cost, interpolation='nearest', aspect='auto', cmap=magma, vmin=0)
+            plt.title("Type Cost")
+            plt.colorbar()
+
+            ax = plt.subplot(2, 2, 3)
+            plt.imshow(l2_mat, interpolation='nearest', aspect='auto', cmap=magma, vmin=0)
+            plt.title("Total Cost")
+            plt.colorbar()
+
+            ax = plt.subplot(2, 2, 4)
+            plt.imshow(self.S, interpolation='nearest', aspect='auto', cmap=plt.cm.seismic, vmin=-1, vmax=1)
+            plt.title("Sign")
+            plt.colorbar()
+
+            plt.show()
+
+        return l2_mat.astype('float32')
 
 
 if __name__ == '__main__':

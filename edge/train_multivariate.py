@@ -8,6 +8,8 @@ import matplotlib.pyplot as plt
 import tensorflow as tf
 import time
 
+from edge.topo import EITopoNet
+
 from edge.test.data import create_sample_data
 from edge.networks import Basic_Network
 
@@ -95,7 +97,11 @@ class MultivariateRNNTrainer(object):
         h = tf.placeholder(tf.float32, shape=[batch_size, self.hparams['n_unit']])
         hnext = h
         lambda2_val = self.hparams['lambda2']
-        l2_cost = self.net.l2_W(lambda2_val) + self.net.l2_R(lambda2_val) + self.net.l2_Wout(lambda2_val)
+        if 'l2_mat' in self.hparams:
+            R_cost = self.net.l2_R_elementwise(self.hparams['l2_mat'], lambda2_val)
+        else:
+            R_cost = self.net.l2_R(lambda2_val)
+        l2_cost = self.net.l2_W(lambda2_val) + R_cost + self.net.l2_Wout(lambda2_val)
 
         # The forward propagation graph
         batch_err_list = list()
@@ -179,6 +185,7 @@ class MultivariateRNNTrainer(object):
                 eta_val = None
                 seg_errs = list()
                 for seg in range(n_segs_per_batch):
+                    print('step=%d, seg=%d' % (step, seg))
 
                     # put the input and output matrices in the feed dictionary for this minibatch
                     Uk = Utrain[:, seg, :, :]
@@ -189,8 +196,18 @@ class MultivariateRNNTrainer(object):
                     to_compute = [self.train_vars[vname] for vname in ['batch_err', 'eta', 'hnext', 'apply_grads']]
                     if 'sign_constrain_R' in self.train_vars:
                         to_compute.append(self.train_vars['sign_constrain_R'])
+                    to_compute.append(self.train_vars['R'])
 
-                    train_error_val, eta_val, hnext_val = session.run(to_compute, feed_dict=feed_dict)[:3]
+                    compute_vals = session.run(to_compute, feed_dict=feed_dict)
+                    train_error_val, eta_val, hnext_val = compute_vals[:3]
+                    Ri = compute_vals[-1]
+
+                    plt.figure()
+                    absmax = np.abs(Ri).max()
+                    plt.imshow(Ri, interpolation='nearest', aspect='auto', vmin=-absmax, vmax=absmax, cmap=plt.cm.seismic)
+                    plt.colorbar()
+                    plt.title('Recurrent Weight Matrix: step=%d, seg=%d' % (step, seg))
+                    plt.show()
 
                     # get the last hidden state value to use on the next minibatch
                     h0 = hnext_val
@@ -305,7 +322,6 @@ if __name__ == '__main__':
 
     n_in = 2
     n_hid_data = 4
-    n_hid = 20
     n_out = 3
     t_in = 10000
 
@@ -360,18 +376,29 @@ if __name__ == '__main__':
     print("Utest.shape=" + str(Utest.shape))
     print("Ytest.shape=" + str(Ytest.shape))
 
+    ei_ratio = 0.75 # excitatory neurons comprise 75% of the population
+    num_e = 100
+    n_hid = int(num_e / ei_ratio)
+    num_i = n_hid - num_e
+
+    topo_net = EITopoNet()
+    topo_net.construct(num_e, num_i, plot=False)
+
+    num_e = topo_net.num_e
+    num_i = topo_net.num_i
+    n_hid = num_e + num_i
+
     hparams = {'rnn_type':'SRNN', 'n_in':n_in, 'n_out':n_out, 'n_unit':n_hid, 'activation':'relu', 't_mem':t_mem,
                'opt_algorithm':'annealed_sgd', 'n_train_steps':25, 'batch_size':n_batches, 'eta0':5e-2,
-               'dropout':{'R':0.0, 'W':0.0}, 'lambda2':1e-1,
+               'dropout':{'R':0.0, 'W':0.0}, 'lambda2':1e-3,
                't_mem_run':Utest.shape[1],
                }
 
-    sign_mat = np.ones([n_hid, n_hid])
-    for k in range(n_hid):
-        if k % 2 == 0:
-            sign_mat[k, :] *= -1.
-
-    hparams['sign_constrain_R'] = sign_mat
+    # hparams['l2_mat'] = topo_net.get_cost(e_scale=1e-1, i_scale=1e-1, plot=True)
+    hparams['l2_mat'] = np.ones([n_hid, n_hid])*hparams['lambda2']
+    Sgn = np.ones([n_hid, n_hid])
+    Sgn[10:, :] = -1
+    hparams['sign_constrain_R'] = Sgn
 
     print("Building network...")
     rnn_trainer = MultivariateRNNTrainer(hparams)

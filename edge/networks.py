@@ -64,6 +64,14 @@ class Basic_Network(object):
     def l2_R(self, lambda_val=1.):
         return lambda_val*(tf.reduce_mean(tf.square(self.rnn_layer.R)) + tf.reduce_mean(tf.square(self.rnn_layer.b)))
 
+    def l2_R_elementwise(self, lambda_mat, lambda_b=1.):
+        # print("lambda_mat.shape=" + str(lambda_mat.shape))
+        # print("self.rnn_layer.R.get_shape()=" + str(self.rnn_layer.R.get_shape()))
+        assert lambda_mat.shape == self.rnn_layer.R.get_shape()
+        assert np.isscalar(lambda_b)
+        # return tf.reduce_mean(tf.mul(lambda_mat, tf.square(self.rnn_layer.R))) + lambda_b*tf.reduce_mean(tf.square(self.rnn_layer.b))
+        return lambda_b*(tf.reduce_mean(tf.square(self.rnn_layer.R)) + tf.reduce_mean(tf.square(self.rnn_layer.b)))
+
     def l2_Wout(self, lambda_val=1.):
         return lambda_val*(tf.reduce_mean(tf.square(self.output_layer.W)) + tf.reduce_mean(tf.square(self.output_layer.b)))
 
