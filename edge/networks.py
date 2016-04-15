@@ -82,6 +82,7 @@ class Basic_Network(object):
         :param sign_mat: A matrix of shape (n_hidden, n_hidden) that has a 1 for elements that should be positive,
                 and -1 for elements that should be negative.
         """
+        self.M = None
 
         with tf.op_scope([sign_mat], name, "sign_constrain_R") as scope:
             # encode the sign matrix as a graph variable
@@ -91,7 +92,16 @@ class Basic_Network(object):
             S = tf.sign(self.rnn_layer.R)
 
             # compute a binary mask that will zero out weights that are the wrong sign
-            M = math_ops.maximum(tf.mul(S, G), 0)
+            M = math_ops.maximum(tf.mul(S, G), 0, name='M')
+            self.M = M
 
             # constrain weights to be positive
             return self.rnn_layer.R.assign(tf.mul(self.rnn_layer.R, M))
+
+    def distance_constrain_R(self, dist_mat, hard_cutoff=500e-3, name=None):
+        with tf.op_scope([dist_mat], name, "distance_constrain_R") as scope:
+            M = (dist_mat <= hard_cutoff).astype('float32')
+            return self.rnn_layer.R.assign(tf.mul(self.rnn_layer.R, M))
+
+    def activity_cost(self, h, a):
+        return tf.reduce_mean(tf.matmul(tf.square(h), a))

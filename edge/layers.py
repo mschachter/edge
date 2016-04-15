@@ -27,9 +27,10 @@ class SRNN_Layer(object):
         self.n_input = n_input
         self.n_unit = n_unit
 
-        self.W = tf.Variable(init_weights(n_input, n_unit, hparams), name = 'W')
-        self.R = tf.Variable(init_weights(n_unit, n_unit, hparams), name = 'R')
-        self.b = tf.Variable(tf.zeros([1, n_unit]), name = 'b')
+        with tf.name_scope('srnn_layer'):
+            self.W = tf.Variable(init_weights(n_input, n_unit, hparams), name = 'W')
+            self.R = tf.Variable(init_weights(n_unit, n_unit, hparams), name = 'R')
+            self.b = tf.Variable(tf.zeros([1, n_unit]), name = 'b')
 
         self.dropout = {'W':0, 'R':0}
 

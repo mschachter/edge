@@ -119,8 +119,11 @@ class MultivariateRNNTrainer(object):
             # net_preds.append(yhat)
 
             # compute the cost at time t across all batches
+            activity_cost = 0.
+            if 'activity_cost' in self.hparams:
+                activity_cost = self.net.activity_cost(hnext, self.hparams['activity_cost'])
             mse = tf.reduce_mean(tf.reshape(tf.square(y - yhat), [-1]))
-            err = mse + l2_cost
+            err = mse + l2_cost + activity_cost
             batch_err_list.append(tf.expand_dims(err, 0))
 
         # compute the overall training error, the mean of the mean square error at each time point
@@ -174,6 +177,14 @@ class MultivariateRNNTrainer(object):
 
             tf.initialize_all_variables().run()
 
+            # if there is a sign constraint, impose that on the initial guess
+            if 'sign_constrain_R' in self.train_vars:
+                session.run(self.train_vars['sign_constrain_R'])
+
+            if 'distance_matrix' in self.hparams:
+                dthresh_op = self.net.distance_constrain_R(self.hparams['distance_matrix'])
+                session.run(dthresh_op)
+
             # for each training iteration
             epoch_errs = list()
             epoch_test_errs = list()
@@ -185,29 +196,53 @@ class MultivariateRNNTrainer(object):
                 eta_val = None
                 seg_errs = list()
                 for seg in range(n_segs_per_batch):
-                    print('step=%d, seg=%d' % (step, seg))
-
                     # put the input and output matrices in the feed dictionary for this minibatch
                     Uk = Utrain[:, seg, :, :]
                     Yk = Ytrain[:, seg, :, :]
                     feed_dict = {self.train_vars['U']:Uk, self.train_vars['Y']:Yk, self.train_vars['h']:h0}
 
                     # run the session to train the model for this minibatch
+                    R0 = session.run(self.train_vars['R'])
                     to_compute = [self.train_vars[vname] for vname in ['batch_err', 'eta', 'hnext', 'apply_grads']]
-                    if 'sign_constrain_R' in self.train_vars:
-                        to_compute.append(self.train_vars['sign_constrain_R'])
-                    to_compute.append(self.train_vars['R'])
-
                     compute_vals = session.run(to_compute, feed_dict=feed_dict)
                     train_error_val, eta_val, hnext_val = compute_vals[:3]
-                    Ri = compute_vals[-1]
+
+                    R1 = session.run(self.train_vars['R'])
+
+                    if 'sign_constrain_R' in self.train_vars:
+                        session.run(self.train_vars['sign_constrain_R'])
+                    R2 = session.run(self.train_vars['R'])
+
+                    """
+                    M = session.run(self.net.M)
+                    print("M.shape=%s, dtype=%s" % (str(M.shape), str(M.dtype)))
 
                     plt.figure()
-                    absmax = np.abs(Ri).max()
-                    plt.imshow(Ri, interpolation='nearest', aspect='auto', vmin=-absmax, vmax=absmax, cmap=plt.cm.seismic)
+                    ax = plt.subplot(2, 2, 1)
+                    absmax = np.abs(R0).max()
+                    plt.imshow(R0, interpolation='nearest', aspect='auto', vmin=-absmax, vmax=absmax, cmap=plt.cm.seismic)
                     plt.colorbar()
-                    plt.title('Recurrent Weight Matrix: step=%d, seg=%d' % (step, seg))
+                    plt.title('Recurrent Weight Matrix (initial): step=%d, seg=%d' % (step, seg))
+
+                    ax = plt.subplot(2, 2, 2)
+                    absmax = np.abs(R1).max()
+                    plt.imshow(R1, interpolation='nearest', aspect='auto', vmin=-absmax, vmax=absmax, cmap=plt.cm.seismic)
+                    plt.colorbar()
+                    plt.title('Recurrent Weight Matrix (pre-constraint): step=%d, seg=%d' % (step, seg))
+
+                    ax = plt.subplot(2, 2, 3)
+                    absmax = np.abs(R2).max()
+                    plt.imshow(R2, interpolation='nearest', aspect='auto', vmin=-absmax, vmax=absmax, cmap=plt.cm.seismic)
+                    plt.colorbar()
+                    plt.title('Recurrent Weight Matrix (post-constraint): step=%d, seg=%d' % (step, seg))
+
+                    ax = plt.subplot(2, 2, 4)
+                    plt.imshow(M, interpolation='nearest', aspect='auto', vmin=-1, vmax=1, cmap=plt.cm.seismic)
+                    plt.colorbar()
+                    plt.title('Sign Matrix: step=%d, seg=%d' % (step, seg))
+
                     plt.show()
+                    """
 
                     # get the last hidden state value to use on the next minibatch
                     h0 = hnext_val
@@ -389,16 +424,18 @@ if __name__ == '__main__':
     n_hid = num_e + num_i
 
     hparams = {'rnn_type':'SRNN', 'n_in':n_in, 'n_out':n_out, 'n_unit':n_hid, 'activation':'relu', 't_mem':t_mem,
-               'opt_algorithm':'annealed_sgd', 'n_train_steps':25, 'batch_size':n_batches, 'eta0':5e-2,
+               'opt_algorithm':'adam', 'n_train_steps':25, 'batch_size':n_batches, 'eta0':5e-2,
                'dropout':{'R':0.0, 'W':0.0}, 'lambda2':1e-3,
                't_mem_run':Utest.shape[1],
                }
 
-    # hparams['l2_mat'] = topo_net.get_cost(e_scale=1e-1, i_scale=1e-1, plot=True)
+    # hparams['l2_mat'] = topo_net.get_cost(e_scale=1e-3, i_scale=1e-1, plot=True)
+    hparams['distance_matrix'] = topo_net.D
     hparams['l2_mat'] = np.ones([n_hid, n_hid])*hparams['lambda2']
-    Sgn = np.ones([n_hid, n_hid])
-    Sgn[10:, :] = -1
-    hparams['sign_constrain_R'] = Sgn
+    hparams['sign_constrain_R'] = topo_net.S
+
+    acost = np.ones([n_hid, 1], dtype='float32')
+    hparams['activity_cost'] = acost
 
     print("Building network...")
     rnn_trainer = MultivariateRNNTrainer(hparams)
