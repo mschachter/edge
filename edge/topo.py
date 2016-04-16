@@ -129,6 +129,20 @@ class EITopoNet(object):
 
             plt.show()
 
+        # create an initial guess matrix that obeys sign and distance constraints
+        Rstd = np.sqrt(2.) / np.sqrt(2*num_total)
+        R0 = np.random.randn(num_total, num_total)*Rstd
+
+        # constrain by distance
+        dthresh = 300e-3
+        i = D > dthresh
+        Rsmall = np.random.randn(num_total, num_total)*1e-4
+        R0[i] = Rsmall[i]
+
+        # constrain by sign, flip sign of incorrect weights
+        R0 *= np.sign(R0)*S
+
+        self.R0 = R0
         self.D = D
         self.S = S
         self.locs = locs_all

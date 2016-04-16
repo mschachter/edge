@@ -79,8 +79,8 @@ class MultivariateRNNTrainer(object):
             self.train_vars['apply_grads'] = apply_grads
             self.train_vars['R'] = self.net.rnn_layer.R
 
-            if 'sign_constrain_R' in self.hparams:
-                self.train_vars['sign_constrain_R'] = self.net.sign_constraint_R(hparams['sign_constrain_R'])
+            if 'sign_constrain' in self.hparams and 'sign_matrix' in self.hparams:
+                self.train_vars['sign_constrain'] = self.net.sign_constraint_R(hparams['sign_matrix'])
 
     def create_batch_train_op(self):
 
@@ -122,8 +122,14 @@ class MultivariateRNNTrainer(object):
             activity_cost = 0.
             if 'activity_cost' in self.hparams:
                 activity_cost = self.net.activity_cost(hnext, self.hparams['activity_cost'])
+            sign_cost = 0
+            if 'sign_matrix' in self.hparams:
+                sign_lambda = 1.
+                if 'sign_lambda' in self.hparams:
+                    sign_lambda = self.hparams['sign_lambda']
+                sign_cost = self.net.sign_cost(self.hparams['sign_matrix'], sign_lambda)
             mse = tf.reduce_mean(tf.reshape(tf.square(y - yhat), [-1]))
-            err = mse + l2_cost + activity_cost
+            err = mse + l2_cost + activity_cost + sign_cost
             batch_err_list.append(tf.expand_dims(err, 0))
 
         # compute the overall training error, the mean of the mean square error at each time point
@@ -153,7 +159,7 @@ class MultivariateRNNTrainer(object):
 
         return {'net_preds':net_preds, 'h':h, 'U':U, 'hnext':hnext}
 
-    def train(self, Utrain, Ytrain, Utest=None, Ytest=None, test_check_interval=5):
+    def train(self, Utrain, Ytrain, Utest=None, Ytest=None, test_check_interval=5, plot_R=False):
 
         n_train_steps = self.hparams['n_train_steps']
         
@@ -177,13 +183,8 @@ class MultivariateRNNTrainer(object):
 
             tf.initialize_all_variables().run()
 
-            # if there is a sign constraint, impose that on the initial guess
-            if 'sign_constrain_R' in self.train_vars:
-                session.run(self.train_vars['sign_constrain_R'])
-
-            if 'distance_matrix' in self.hparams:
-                dthresh_op = self.net.distance_constrain_R(self.hparams['distance_matrix'])
-                session.run(dthresh_op)
+            if 'R0' in self.hparams:
+                session.run(self.net.rnn_layer.R.assign(self.hparams['R0']))
 
             # for each training iteration
             epoch_errs = list()
@@ -202,47 +203,31 @@ class MultivariateRNNTrainer(object):
                     feed_dict = {self.train_vars['U']:Uk, self.train_vars['Y']:Yk, self.train_vars['h']:h0}
 
                     # run the session to train the model for this minibatch
-                    R0 = session.run(self.train_vars['R'])
+                    if plot_R:
+                        R0 = session.run(self.train_vars['R'])
+
                     to_compute = [self.train_vars[vname] for vname in ['batch_err', 'eta', 'hnext', 'apply_grads']]
                     compute_vals = session.run(to_compute, feed_dict=feed_dict)
                     train_error_val, eta_val, hnext_val = compute_vals[:3]
 
-                    R1 = session.run(self.train_vars['R'])
+                    if plot_R:
+                        R1 = session.run(self.train_vars['R'])
 
-                    if 'sign_constrain_R' in self.train_vars:
-                        session.run(self.train_vars['sign_constrain_R'])
-                    R2 = session.run(self.train_vars['R'])
+                    if plot_R:
+                        plt.figure()
+                        ax = plt.subplot(1, 2, 1)
+                        absmax = np.abs(R0).max()
+                        plt.imshow(R0, interpolation='nearest', aspect='auto', vmin=-absmax, vmax=absmax, cmap=plt.cm.seismic)
+                        plt.colorbar()
+                        plt.title('Recurrent Weight Matrix (initial): step=%d, seg=%d' % (step, seg))
 
-                    """
-                    M = session.run(self.net.M)
-                    print("M.shape=%s, dtype=%s" % (str(M.shape), str(M.dtype)))
+                        ax = plt.subplot(1, 2, 2)
+                        absmax = np.abs(R1).max()
+                        plt.imshow(R1, interpolation='nearest', aspect='auto', vmin=-absmax, vmax=absmax, cmap=plt.cm.seismic)
+                        plt.colorbar()
+                        plt.title('Recurrent Weight Matrix (post-step): step=%d, seg=%d' % (step, seg))
 
-                    plt.figure()
-                    ax = plt.subplot(2, 2, 1)
-                    absmax = np.abs(R0).max()
-                    plt.imshow(R0, interpolation='nearest', aspect='auto', vmin=-absmax, vmax=absmax, cmap=plt.cm.seismic)
-                    plt.colorbar()
-                    plt.title('Recurrent Weight Matrix (initial): step=%d, seg=%d' % (step, seg))
-
-                    ax = plt.subplot(2, 2, 2)
-                    absmax = np.abs(R1).max()
-                    plt.imshow(R1, interpolation='nearest', aspect='auto', vmin=-absmax, vmax=absmax, cmap=plt.cm.seismic)
-                    plt.colorbar()
-                    plt.title('Recurrent Weight Matrix (pre-constraint): step=%d, seg=%d' % (step, seg))
-
-                    ax = plt.subplot(2, 2, 3)
-                    absmax = np.abs(R2).max()
-                    plt.imshow(R2, interpolation='nearest', aspect='auto', vmin=-absmax, vmax=absmax, cmap=plt.cm.seismic)
-                    plt.colorbar()
-                    plt.title('Recurrent Weight Matrix (post-constraint): step=%d, seg=%d' % (step, seg))
-
-                    ax = plt.subplot(2, 2, 4)
-                    plt.imshow(M, interpolation='nearest', aspect='auto', vmin=-1, vmax=1, cmap=plt.cm.seismic)
-                    plt.colorbar()
-                    plt.title('Sign Matrix: step=%d, seg=%d' % (step, seg))
-
-                    plt.show()
-                    """
+                        plt.show()
 
                     # get the last hidden state value to use on the next minibatch
                     h0 = hnext_val
@@ -424,22 +409,26 @@ if __name__ == '__main__':
     n_hid = num_e + num_i
 
     hparams = {'rnn_type':'SRNN', 'n_in':n_in, 'n_out':n_out, 'n_unit':n_hid, 'activation':'relu', 't_mem':t_mem,
-               'opt_algorithm':'adam', 'n_train_steps':25, 'batch_size':n_batches, 'eta0':5e-2,
-               'dropout':{'R':0.0, 'W':0.0}, 'lambda2':1e-3,
+               'opt_algorithm':'adam', 'n_train_steps':65, 'batch_size':n_batches, 'eta0':5e-2,
+               'dropout':{'R':0.0, 'W':0.0}, 'lambda2':0, 'R0':topo_net.R0,
                't_mem_run':Utest.shape[1],
                }
 
     # hparams['l2_mat'] = topo_net.get_cost(e_scale=1e-3, i_scale=1e-1, plot=True)
-    hparams['distance_matrix'] = topo_net.D
-    hparams['l2_mat'] = np.ones([n_hid, n_hid])*hparams['lambda2']
-    hparams['sign_constrain_R'] = topo_net.S
+    # hparams['distance_matrix'] = topo_net.D
+    # hparams['distance_constrain'] = True
+
+    # hparams['l2_mat'] = np.ones([n_hid, n_hid])*hparams['lambda2']
+    hparams['sign_matrix'] = topo_net.S
+    hparams['sign_lambda'] = 1e2
+    # hparams['sign_constrain'] = True
 
     acost = np.ones([n_hid, 1], dtype='float32')
-    hparams['activity_cost'] = acost
+    # hparams['activity_cost'] = acost
 
     print("Building network...")
     rnn_trainer = MultivariateRNNTrainer(hparams)
     print("Training network...")
-    rnn_trainer.train(Utrain, Ytrain, Utest, Ytest)
+    rnn_trainer.train(Utrain, Ytrain, Utest, Ytest, plot_R=False)
     print("Plotting network...")
     rnn_trainer.plot(Utest, Ytest, text_only=False)

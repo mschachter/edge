@@ -82,8 +82,6 @@ class Basic_Network(object):
         :param sign_mat: A matrix of shape (n_hidden, n_hidden) that has a 1 for elements that should be positive,
                 and -1 for elements that should be negative.
         """
-        self.M = None
-
         with tf.op_scope([sign_mat], name, "sign_constrain_R") as scope:
             # encode the sign matrix as a graph variable
             G = tf.constant(sign_mat.astype('float32'))
@@ -93,15 +91,40 @@ class Basic_Network(object):
 
             # compute a binary mask that will zero out weights that are the wrong sign
             M = math_ops.maximum(tf.mul(S, G), 0, name='M')
-            self.M = M
 
             # constrain weights to be positive
             return self.rnn_layer.R.assign(tf.mul(self.rnn_layer.R, M))
 
-    def distance_constrain_R(self, dist_mat, hard_cutoff=500e-3, name=None):
+    def sign_cost(self, sign_mat, sign_lambda=1.):
+
+        # encode the sign matrix as a graph variable
+        S = tf.constant(sign_mat.astype('float32'))
+
+        # get the sign of the recurrent net weights
+        R = self.rnn_layer.R
+
+        # compute the cost for each weight
+        C = 0.5 * S * R * (S*R - tf.abs(R))
+
+        # the total cost is the mean
+        return sign_lambda*tf.reduce_mean(C)
+
+    def distance_constrain_R(self, dist_mat, cutoff=500e-3, min_val=0., name=None):
         with tf.op_scope([dist_mat], name, "distance_constrain_R") as scope:
-            M = (dist_mat <= hard_cutoff).astype('float32')
-            return self.rnn_layer.R.assign(tf.mul(self.rnn_layer.R, M))
+            # zero out weights that are further than the cutoff
+            M = (dist_mat <= cutoff).astype('float32')
+            Z = tf.mul(self.rnn_layer.R, M)
+            if min_val > 0:
+                Rnew = Z + (1-M)*min_val
+            else:
+                Rnew = Z
+
+            return self.rnn_layer.R.assign(Rnew)
 
     def activity_cost(self, h, a):
         return tf.reduce_mean(tf.matmul(tf.square(h), a))
+
+    def rescale_R(self, scale, name=None):
+
+        with tf.op_scope([scale], name, "rescale_R") as scope:
+            return self.rnn_layer.R.assign(scale*self.rnn_layer.R)
