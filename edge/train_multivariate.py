@@ -185,6 +185,8 @@ class MultivariateRNNTrainer(object):
 
             if 'R0' in self.hparams:
                 session.run(self.net.rnn_layer.R.assign(self.hparams['R0']))
+            if 'b0' in self.hparams:
+                session.run(self.net.rnn_layer.b.assign(self.hparams['b0']))
 
             # for each training iteration
             epoch_errs = list()
@@ -205,6 +207,7 @@ class MultivariateRNNTrainer(object):
                     # run the session to train the model for this minibatch
                     if plot_R:
                         R0 = session.run(self.train_vars['R'])
+                        b0 = session.run(self.net.rnn_layer.b)
 
                     to_compute = [self.train_vars[vname] for vname in ['batch_err', 'eta', 'hnext', 'apply_grads']]
                     compute_vals = session.run(to_compute, feed_dict=feed_dict)
@@ -212,20 +215,35 @@ class MultivariateRNNTrainer(object):
 
                     if plot_R:
                         R1 = session.run(self.train_vars['R'])
+                        b1 = session.run(self.net.rnn_layer.b)
 
                     if plot_R:
                         plt.figure()
-                        ax = plt.subplot(1, 2, 1)
+                        gs = plt.GridSpec(100, 2)
+
+                        ax = plt.subplot(gs[:60, 0])
                         absmax = np.abs(R0).max()
                         plt.imshow(R0, interpolation='nearest', aspect='auto', vmin=-absmax, vmax=absmax, cmap=plt.cm.seismic)
                         plt.colorbar()
                         plt.title('Recurrent Weight Matrix (initial): step=%d, seg=%d' % (step, seg))
 
-                        ax = plt.subplot(1, 2, 2)
+                        ax = plt.subplot(gs[70:, 0])
+                        absmax = np.abs(b0).max()
+                        plt.plot(b0.squeeze(), 'k-', linewidth=3.0, alpha=0.7)
+                        plt.axis('tight')
+                        plt.ylim(-absmax, absmax)
+
+                        ax = plt.subplot(gs[:60, 1])
                         absmax = np.abs(R1).max()
                         plt.imshow(R1, interpolation='nearest', aspect='auto', vmin=-absmax, vmax=absmax, cmap=plt.cm.seismic)
                         plt.colorbar()
                         plt.title('Recurrent Weight Matrix (post-step): step=%d, seg=%d' % (step, seg))
+
+                        ax = plt.subplot(gs[70:, 1])
+                        absmax = np.abs(b1).max()
+                        plt.plot(b1.squeeze(), 'k-', linewidth=3.0, alpha=0.7)
+                        plt.axis('tight')
+                        plt.ylim(-absmax, absmax)
 
                         plt.show()
 
@@ -410,15 +428,14 @@ if __name__ == '__main__':
 
     hparams = {'rnn_type':'SRNN', 'n_in':n_in, 'n_out':n_out, 'n_unit':n_hid, 'activation':'relu', 't_mem':t_mem,
                'opt_algorithm':'adam', 'n_train_steps':65, 'batch_size':n_batches, 'eta0':5e-2,
-               'dropout':{'R':0.0, 'W':0.0}, 'lambda2':0, 'R0':topo_net.R0,
+               'dropout':{'R':0.0, 'W':0.0}, 'lambda2':0, 'R0':topo_net.R0, 'b0':topo_net.b0,
                't_mem_run':Utest.shape[1],
                }
 
-    # hparams['l2_mat'] = topo_net.get_cost(e_scale=1e-3, i_scale=1e-1, plot=True)
+    hparams['l2_mat'] = topo_net.get_cost(e_scale=250e-3, i_scale=250e-3, plot=False)*2
     # hparams['distance_matrix'] = topo_net.D
     # hparams['distance_constrain'] = True
 
-    # hparams['l2_mat'] = np.ones([n_hid, n_hid])*hparams['lambda2']
     hparams['sign_matrix'] = topo_net.S
     hparams['sign_lambda'] = 1e2
     # hparams['sign_constrain'] = True

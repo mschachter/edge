@@ -9,6 +9,9 @@ class EITopoNet(object):
     def __init__(self):
         self.D = None
         self.S = None
+        self.R0 = None
+        self.b0 = None
+
         self.locs = None
         self.num_e = None
         self.num_i = None
@@ -142,7 +145,15 @@ class EITopoNet(object):
         # constrain by sign, flip sign of incorrect weights
         R0 *= np.sign(R0)*S
 
+        # create an initial bias weight vector
+        b0 = np.random.randn(num_total)
+        b0[np.abs(b0) > 2] = 0.
+        b0[b0 > 0] *= -1
+        # b0[:num_e] = -np.abs(b0[:num_e])
+        # b0[num_e:] = np.abs(b0[num_e:])
+
         self.R0 = R0
+        self.b0 = b0.reshape([1, num_total])
         self.D = D
         self.S = S
         self.locs = locs_all
@@ -176,7 +187,7 @@ class EITopoNet(object):
         dist_cost[:self.num_e, :] = f(self.D[:self.num_e, :], e_scale)
 
         # set the distance cost for inhibitory connections
-        dist_cost[self.num_i:, :] = f(self.D[self.num_i:, :], i_scale)
+        dist_cost[self.num_e:, :] = f(self.D[self.num_e:, :], i_scale)
 
         # set the connection strength regularizers
         type_cost = np.zeros([ntot, ntot])
@@ -194,7 +205,8 @@ class EITopoNet(object):
         type_cost[self.num_e:, self.num_e:] = ii_strength
 
         # multiply distance and connection strength costs to get total L2 cost
-        l2_mat = dist_cost * type_cost
+        # l2_mat = dist_cost * type_cost
+        l2_mat = dist_cost
 
         if plot:
             plt.figure()
