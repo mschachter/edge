@@ -92,6 +92,9 @@ class MultivariateRNNTrainer(object):
         # the output placeholder, contains the desired multivariate output time series for a batch
         Y = tf.placeholder(tf.float32, shape=[batch_size, self.hparams['t_mem'], self.hparams['n_out']])
 
+        # the iteration number placeholder
+        mse_weight = tf.placeholder(tf.float32)
+
         # the initial state placeholder, contains the initial state used at the beginning of a batch,
         # for each batch
         h = tf.placeholder(tf.float32, shape=[batch_size, self.hparams['n_unit']])
@@ -129,14 +132,14 @@ class MultivariateRNNTrainer(object):
                     sign_lambda = self.hparams['sign_lambda']
                 sign_cost = self.net.sign_cost(self.hparams['sign_matrix'], sign_lambda)
             mse = tf.reduce_mean(tf.reshape(tf.square(y - yhat), [-1]))
-            err = mse + l2_cost + activity_cost + sign_cost
+            err = mse*mse_weight + l2_cost + activity_cost + sign_cost
             batch_err_list.append(tf.expand_dims(err, 0))
 
         # compute the overall training error, the mean of the mean square error at each time point
         batch_err_list = tf.concat(0, batch_err_list)
         batch_err = tf.reduce_mean(batch_err_list)
 
-        return {'U':U, 'Y':Y, 'batch_err':batch_err, 'h':h, 'hnext':hnext}
+        return {'U':U, 'Y':Y, 'batch_err':batch_err, 'h':h, 'hnext':hnext, 'mse_weight':mse_weight}
 
     def create_run_op(self):
         # the input placeholder, contains the entire multivariate input time series for a batch
@@ -159,7 +162,7 @@ class MultivariateRNNTrainer(object):
 
         return {'net_preds':net_preds, 'h':h, 'U':U, 'hnext':hnext}
 
-    def train(self, Utrain, Ytrain, Utest=None, Ytest=None, test_check_interval=5, plot_R=False):
+    def train(self, Utrain, Ytrain, Utest=None, Ytest=None, test_check_interval=5, plot_R=False, weight_the_mse=True):
 
         n_train_steps = self.hparams['n_train_steps']
         
@@ -195,6 +198,11 @@ class MultivariateRNNTrainer(object):
 
                 # print("step=%d, len(all_variables())=%d" % (step, len(tf.all_variables())))
 
+                mse_weight = 1.
+                if weight_the_mse:
+                    mse_weight = (1.0 + np.exp(-step / 20))**-1
+                    print("mse_weight=%f" % mse_weight)
+
                 stime = time.time()
                 eta_val = None
                 seg_errs = list()
@@ -202,7 +210,8 @@ class MultivariateRNNTrainer(object):
                     # put the input and output matrices in the feed dictionary for this minibatch
                     Uk = Utrain[:, seg, :, :]
                     Yk = Ytrain[:, seg, :, :]
-                    feed_dict = {self.train_vars['U']:Uk, self.train_vars['Y']:Yk, self.train_vars['h']:h0}
+                    feed_dict = {self.train_vars['U']:Uk, self.train_vars['Y']:Yk, self.train_vars['h']:h0,
+                                 self.train_vars['mse_weight']:mse_weight}
 
                     # run the session to train the model for this minibatch
                     if plot_R:
@@ -299,8 +308,10 @@ class MultivariateRNNTrainer(object):
             plt.figure()
             gs = plt.GridSpec(100, 100)
 
+            train_err_mean = self.epoch_errs.mean(axis=1)
+            train_err_std = self.epoch_errs.std(axis=1, ddof=1)
             ax = plt.subplot(gs[:45, :30])
-            plt.errorbar(range(n_train_steps), self.epoch_errs.mean(axis=1), yerr=self.epoch_errs.std(axis=1, ddof=1),
+            plt.errorbar(range(1, n_train_steps), train_err_mean[1:], yerr=train_err_std[1:],
                          linewidth=4.0, c='r', alpha=0.7, elinewidth=2.0, ecolor='k')
             plt.axis('tight')
             plt.xlabel('Epoch')
@@ -426,26 +437,34 @@ if __name__ == '__main__':
     num_i = topo_net.num_i
     n_hid = num_e + num_i
 
+    R0 = np.random.randn(n_hid, n_hid)*1e-4
+
     hparams = {'rnn_type':'SRNN', 'n_in':n_in, 'n_out':n_out, 'n_unit':n_hid, 'activation':'relu', 't_mem':t_mem,
-               'opt_algorithm':'adam', 'n_train_steps':65, 'batch_size':n_batches, 'eta0':5e-2,
-               'dropout':{'R':0.0, 'W':0.0}, 'lambda2':0, 'R0':topo_net.R0, 'b0':topo_net.b0,
+               'opt_algorithm':'adam', 'n_train_steps':60, 'batch_size':n_batches, 'eta0':5e-2,
+               'dropout':{'R':0.0, 'W':0.0}, 'lambda2':0, 'b0':topo_net.b0, 'R0':R0, #'R0':topo_net.R0,
                't_mem_run':Utest.shape[1],
                }
 
-    hparams['l2_mat'] = topo_net.get_cost(e_scale=250e-3, i_scale=250e-3, plot=False)*2
+    dist_scale = 0.5
+    hparams['l2_mat'] = topo_net.get_cost(e_scale=dist_scale, i_scale=dist_scale, plot=False, func_type='linear')
     # hparams['distance_matrix'] = topo_net.D
     # hparams['distance_constrain'] = True
 
-    hparams['sign_matrix'] = topo_net.S
-    hparams['sign_lambda'] = 1e2
+    # hparams['sign_matrix'] = topo_net.S
+    # hparams['sign_lambda'] = 1e2
     # hparams['sign_constrain'] = True
 
-    acost = np.ones([n_hid, 1], dtype='float32')
+    # acost = np.ones([n_hid, 1], dtype='float32')
     # hparams['activity_cost'] = acost
+
+
 
     print("Building network...")
     rnn_trainer = MultivariateRNNTrainer(hparams)
     print("Training network...")
-    rnn_trainer.train(Utrain, Ytrain, Utest, Ytest, plot_R=False)
+    rnn_trainer.train(Utrain, Ytrain, Utest, Ytest, plot_R=False, weight_the_mse=False)
+    topo_net.plot_weight_vs_dist(rnn_trainer.trained_params['R'])
+
     print("Plotting network...")
     rnn_trainer.plot(Utest, Ytest, text_only=False)
+

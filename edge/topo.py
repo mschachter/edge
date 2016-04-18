@@ -161,6 +161,31 @@ class EITopoNet(object):
         self.num_i = num_i
         self.extent = extent
 
+    def plot_weight_vs_dist(self, R):
+
+        X = np.array(zip(self.D.ravel()*1e3, R.ravel()))
+
+        wthresh = 1.
+        i = np.abs(X[:, 1]) < wthresh
+        H,xedges,yedges = np.histogram2d(X[i, 0], X[i, 1]**2, bins=30)
+
+        plt.figure()
+        ax = plt.subplot(2, 2, 1)
+        plt.hist(X[:, 0], bins=25, color='g', alpha=0.7)
+        plt.xlabel('Distance (um) (min=%0.6f, max=%0.6f)' % (X[:, 0].min(), X[:, 0].max()))
+        plt.axis('tight')
+
+        ax = plt.subplot(2, 2, 2)
+        plt.hist(X[:, 1], bins=25, color='g', alpha=0.7)
+        plt.xlabel('Weight (min=%0.6f, max=%0.6f)' % (X[:, 1].min(), X[:, 1].max()))
+        plt.axis('tight')
+
+        ax = plt.subplot(2, 2, 3)
+        plt.imshow(np.log10(H+1).T, interpolation='nearest', aspect='auto', extent=(np.min(xedges), np.max(xedges), np.min(yedges), np.max(yedges)), origin='lower')
+        plt.colorbar(label='log10(count)')
+        plt.xlabel('Distance (um)')
+        plt.ylabel('Weight^2')
+
     def get_cost(self, func_type='exp', e_scale=1., i_scale=1.,
                  ei_strength=0.20, ie_strength=1.0, ee_strength=0.20, ii_strength=1.0,
                  plot=False):
@@ -174,7 +199,7 @@ class EITopoNet(object):
 
         f = None
         if func_type == 'exp':
-            f = lambda d,s: np.exp(d*s)-1.
+            f = lambda d,s: np.exp(d/s)-1.
         elif func_type == 'linear':
             f = lambda d,s: d*s
         elif func_type == 'log':
