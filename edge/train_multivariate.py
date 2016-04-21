@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import tensorflow as tf
 import time
 
-from edge.topo import EITopoNet
+from edge.topo import EITopoNet, get_distance_mask
 
 from edge.test.data import create_sample_data
 from edge.networks import Basic_Network
@@ -162,7 +162,7 @@ class MultivariateRNNTrainer(object):
 
         return {'net_preds':net_preds, 'h':h, 'U':U, 'hnext':hnext}
 
-    def train(self, Utrain, Ytrain, Utest=None, Ytest=None, test_check_interval=5, plot_R=False, weight_the_mse=True):
+    def train(self, Utrain, Ytrain, Utest=None, Ytest=None, test_check_interval=5, plot_R=False, weight_the_mse=False):
 
         n_train_steps = self.hparams['n_train_steps']
         
@@ -215,7 +215,10 @@ class MultivariateRNNTrainer(object):
 
                     # run the session to train the model for this minibatch
                     if plot_R:
-                        R0 = session.run(self.train_vars['R'])
+                        Jr0 = None
+                        if self.hparams['rnn_type'] == 'EI':
+                            Jr0 = session.run(self.net.rnn_layer.Jr)
+                        R0 = session.run(self.net.rnn_layer.R)
                         b0 = session.run(self.net.rnn_layer.b)
 
                     to_compute = [self.train_vars[vname] for vname in ['batch_err', 'eta', 'hnext', 'apply_grads']]
@@ -223,12 +226,20 @@ class MultivariateRNNTrainer(object):
                     train_error_val, eta_val, hnext_val = compute_vals[:3]
 
                     if plot_R:
+                        Jr1 = None
+                        if self.hparams['rnn_type'] == 'EI':
+                            Jr1 = session.run(self.net.rnn_layer.Jr)
                         R1 = session.run(self.train_vars['R'])
                         b1 = session.run(self.net.rnn_layer.b)
 
                     if plot_R:
+
+                        ncols = 2
+                        if self.hparams['rnn_type'] == 'EI':
+                            ncols = 3
+
                         plt.figure()
-                        gs = plt.GridSpec(100, 2)
+                        gs = plt.GridSpec(100, ncols)
 
                         ax = plt.subplot(gs[:60, 0])
                         absmax = np.abs(R0).max()
@@ -253,6 +264,19 @@ class MultivariateRNNTrainer(object):
                         plt.plot(b1.squeeze(), 'k-', linewidth=3.0, alpha=0.7)
                         plt.axis('tight')
                         plt.ylim(-absmax, absmax)
+
+                        if self.hparams['rnn_type'] == 'EI':
+                            ax = plt.subplot(gs[:45, 2])
+                            absmax = np.abs(Jr0).max()
+                            plt.imshow(Jr0, interpolation='nearest', aspect='auto', vmin=-absmax, vmax=absmax, cmap=plt.cm.seismic)
+                            plt.colorbar()
+                            plt.title('Jr0: step=%d, seg=%d' % (step, seg))
+
+                            ax = plt.subplot(gs[55:, 2])
+                            absmax = np.abs(Jr1).max()
+                            plt.imshow(Jr1, interpolation='nearest', aspect='auto', vmin=-absmax, vmax=absmax, cmap=plt.cm.seismic)
+                            plt.colorbar()
+                            plt.title('Jr1: step=%d, seg=%d' % (step, seg))
 
                         plt.show()
 
@@ -460,10 +484,11 @@ if __name__ == '__main__':
     hparams['sign'] = topo_net.S[:, 0]
 
     # mask most of the network connections
-    M = np.random.rand(n_hid, n_hid)
-    z = M < 0.90
-    M[z] = 0.
-    M[~z] = 1.
+    # M = np.random.rand(n_hid, n_hid)
+    # z = M < 0.90
+    # M[z] = 0.
+    # M[~z] = 1.
+    M = get_distance_mask(topo_net.D, space_const=0.350)
     hparams['mask'] = M
 
     # acost = np.ones([n_hid, 1], dtype='float32')

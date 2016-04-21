@@ -260,6 +260,23 @@ class EITopoNet(object):
         return l2_mat.astype('float32')
 
 
+def get_distance_mask(D, space_const=0.500):
+    """ Constructs a mask for a weight matrix given a distance matrix and an exponential distribution.
+
+    :param D: the distance matrix
+    :param space_const:
+    :return:
+    """
+
+    P = np.exp(-D / space_const)
+    U = np.random.rand(*P.shape)
+
+    M = np.zeros_like(P)
+    M[U < P] = 1.
+
+    return M
+
+
 if __name__ == '__main__':
 
     ei_ratio = 0.75 # excitatory neurons comprise 75% of the population

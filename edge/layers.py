@@ -1,11 +1,17 @@
 import tensorflow as tf
 import numpy as np
 
-def init_weights(n_input, n_unit, hparams):
+def init_weights(n_input, n_unit, hparams, scale=1.):
 
     # Every ones knows this is how you do it of course
-    return tf.truncated_normal([n_input, n_unit], 0.0,
-        tf.sqrt(2.0)/tf.sqrt(tf.cast(n_input + n_unit, tf.float32)))
+    std = scale*(tf.sqrt(2.0) / tf.sqrt(tf.cast(n_input + n_unit, tf.float32)))
+    return tf.truncated_normal([n_input, n_unit], 0.0, std)
+
+def init_weights_ei(n_input, n_unit, hparams, scale=1.):
+    # A sigmoid is applied to the weights generated here. To keep the network from blowing up,
+    # we need the weights to be negative, so the output of the sigmoid is close to zero.
+    std = scale*(tf.sqrt(2.0) / tf.sqrt(tf.cast(n_input + n_unit, tf.float32)))
+    return -tf.abs(tf.truncated_normal([n_input, n_unit], 0.0, std))
 
 
 class Linear_Layer(object):
@@ -92,7 +98,7 @@ class EI_Layer(object):
             self.M = tf.constant(M.astype('float32'), name='M')
             self.D = tf.constant(np.diag(self.sign.astype('float32')), name='D')
             self.gr = tf.Variable(tf.ones([1]), name='gr')
-            self.Jr = tf.Variable(init_weights(n_unit, n_unit, hparams), name='Jr')
+            self.Jr = tf.Variable(init_weights_ei(n_unit, n_unit, hparams, scale=1000.), name='Jr')
             self.b = tf.Variable(tf.zeros([1, n_unit]), name='b')
 
             self.R = tf.matmul(self.D, tf.sigmoid(self.Jr)) * self.M * self.gr
