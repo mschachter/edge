@@ -73,22 +73,6 @@ class SRNN_Layer(object):
         return h_next
 
 
-class EDSRNN_Layer(SRNN_Layer):
-
-    def __init__(self, n_input, n_unit, hparams):
-        super(EDSRNN_Layer, self).__init__(n_input, n_unit, hparams)
-
-        self.E = tf.Variable(init_weights(n_unit, n_unit, hparams), name='E')
-
-    def step(self, h, x, *d_state):
-        """Updates returns the state updated by input x"""
-        dh = d_state[0]
-        h = tf.sigmoid(tf.matmul(x, self.W) + tf.matmul(h, self.R)
-            + tf.matmul(dh, self.E) + self.b)
-        return h
-
-
-
 class GRU_Layer(object):
     def __init__(self, n_input, n_unit, hparams):
         self.n_input = n_input
@@ -203,31 +187,3 @@ class GRU_Layer(object):
         state['h'] = h_next
 
         return h_next
-
-class EDGRU_Layer(GRU_Layer):
-    def __init__(self, n_input, n_unit, hparams):
-        super(EDGRU_Layer, self).__init__(n_input, n_unit, hparams)
-
-        with tf.name_scope('update'):
-            self.Eu = tf.Variable(init_weights(n_unit, n_unit, hparams), name='Eu')
-        with tf.name_scope('reset_gate'):
-            self.Er = tf.Variable(init_weights(n_unit, n_unit, hparams), name='Er')
-        with tf.name_scope('update_gate'):
-            self.Ez = tf.Variable(init_weights(n_unit, n_unit, hparams), name='Ez')
-
-    def step(self, h, x, *d_state):
-        dh = d_state[0]
-
-        # import ipdb; ipdb.set_trace()
-
-        r = tf.sigmoid(tf.matmul(x, self.Wr) + tf.matmul(h, self.Rr)
-            + tf.matmul(dh, self.Er) + self.br)
-        z = tf.sigmoid(tf.matmul(x, self.Wz) + tf.matmul(h, self.Rz)
-            + tf.matmul(dh, self.Ez) + self.bz)
-
-        h_update = tf.tanh(tf.matmul(x, self.Wu) + r*(tf.matmul(h, self.Ru)
-            + tf.matmul(dh, self.Eu)) + self.bu)
-
-        h = (1.0 - z)*h + z*h_update
-
-        return h

@@ -1,3 +1,4 @@
+run_dir: runs/srnn_comp
 run_name: 'srnn_text'
 rnn_type: 'SRNN'
-prediction_signals: ['unexpected_entropy', 'entropy', 'd_entropy', 'd_unexpected_entropy']
+prediction_signals: []

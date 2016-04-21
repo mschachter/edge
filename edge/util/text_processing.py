@@ -1,5 +1,6 @@
 import numpy as np
 from collections import Counter
+import re
 
 def string_to_alphabet_indices(string):
     '''Finds the alphabet used in string and returns it along with an integer
@@ -11,7 +12,6 @@ def string_to_alphabet_indices(string):
     alphabet = np.array(alphabet)
     alpha_ids = dict(zip(alphabet, range(len(alphabet))))
     indices = np.array(map(alpha_ids.get, string))
-
     return alphabet, indices
 
 def file_to_datasets(filename, valid_fraction = .05, test_fraction = .05,
@@ -42,3 +42,19 @@ def id_to_onehot(alpha_id, alphabet):
     input_val = np.zeros([1, len(alphabet)], dtype=np.float32)
     input_val[0, alpha_id] = 1
     return input_val
+
+# Removes rare characters from a file
+def clean_dataset(filename, clean_filename, min_occur):
+    with open(filename, 'r') as data_file:
+        text = data_file.read()
+
+    counts = Counter(text)
+    bad_chars = ''
+    for key in counts.keys():
+        if counts[key] < min_occur:
+            bad_chars += key
+
+    clean_text = re.sub('[' + bad_chars + ']', '', text)
+
+    with open(clean_filename, 'w') as clean_file:
+        clean_file.write(clean_text)

@@ -123,10 +123,10 @@ with graph.as_default():
         t = tf.Variable(0, name= 't', trainable=False) # the step variable
 
         if hparams['opt_algorithm'] == 'adam':
-            eta = tf.train.exponential_decay(.008, t, 2000, 0.5, staircase=True)
+            eta = tf.train.exponential_decay(hparams['learning_rate'], t, 2000, 0.5, staircase=True)
             optimizer = tf.train.AdamOptimizer(learning_rate=eta)
         elif hparams['opt_algorithm'] == 'annealed_sgd':
-            eta = tf.train.exponential_decay(1.0, t, 5000, 0.1, staircase=True)
+            eta = tf.train.exponential_decay(hparams['learning_rate'], t, 2000, 0.5, staircase=True)
             optimizer = tf.train.GradientDescentOptimizer(eta)
 
         grads, params = zip(*optimizer.compute_gradients(train_err))

@@ -1,3 +1,5 @@
 run_name: 'gru_text'
 rnn_type: 'GRU'
-prediction_signals: ['d_unexpected_entropy']
+prediction_signals: []
+rnn_layers: [300]
+run_dir: 'runs/gru_repeats'
