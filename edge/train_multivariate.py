@@ -356,11 +356,20 @@ class MultivariateRNNTrainer(object):
 
         if not text_only:
             plt.figure()
+            ax = plt.subplot(1, 2, 1)
             R = self.trained_params['R']
             absmax = np.abs(R).max()
             plt.imshow(R, interpolation='nearest', aspect='auto', vmin=-absmax, vmax=absmax, cmap=plt.cm.seismic)
             plt.colorbar()
             plt.title('Recurrent Weight Matrix')
+
+            ax = plt.subplot(1, 2, 2)
+            Rpos = R[R > 0]
+            Rneg = R[R < 0]
+            plt.hist(Rpos.ravel(), bins=25, log=True, color='r', alpha=0.7, normed=True)
+            plt.hist(np.abs(Rneg).ravel(), bins=25, log=True, color='b', alpha=0.7, normed=True)
+            plt.legend(['+', '-'])
+            plt.title('Weight Distribution (magnitude)')
 
             plt.show()
 
@@ -439,31 +448,32 @@ if __name__ == '__main__':
 
     R0 = np.random.randn(n_hid, n_hid)*1e-4
 
-    hparams = {'rnn_type':'SRNN', 'n_in':n_in, 'n_out':n_out, 'n_unit':n_hid, 'activation':'relu', 't_mem':t_mem,
-               'opt_algorithm':'adam', 'n_train_steps':60, 'batch_size':n_batches, 'eta0':5e-2,
-               'dropout':{'R':0.0, 'W':0.0}, 'lambda2':0, 'b0':topo_net.b0, 'R0':R0, #'R0':topo_net.R0,
+    hparams = {'rnn_type':'EI', 'n_in':n_in, 'n_out':n_out, 'n_unit':n_hid, 'activation':'relu', 't_mem':t_mem,
+               'opt_algorithm':'adam', 'n_train_steps':40, 'batch_size':n_batches, 'eta0':5e-2,
+               'dropout':{'R':0.0, 'W':0.0}, 'lambda2':0, 'b0':topo_net.b0,
                't_mem_run':Utest.shape[1],
                }
 
-    dist_scale = 0.5
-    hparams['l2_mat'] = topo_net.get_cost(e_scale=dist_scale, i_scale=dist_scale, plot=False, func_type='linear')
-    # hparams['distance_matrix'] = topo_net.D
-    # hparams['distance_constrain'] = True
+    # dist_scale = 0.5
+    # hparams['l2_mat'] = topo_net.get_cost(e_scale=dist_scale, i_scale=dist_scale, plot=False, func_type='linear')
 
-    # hparams['sign_matrix'] = topo_net.S
-    # hparams['sign_lambda'] = 1e2
-    # hparams['sign_constrain'] = True
+    hparams['sign'] = topo_net.S[:, 0]
+
+    # mask most of the network connections
+    M = np.random.rand(n_hid, n_hid)
+    z = M < 0.90
+    M[z] = 0.
+    M[~z] = 1.
+    hparams['mask'] = M
 
     # acost = np.ones([n_hid, 1], dtype='float32')
     # hparams['activity_cost'] = acost
-
-
 
     print("Building network...")
     rnn_trainer = MultivariateRNNTrainer(hparams)
     print("Training network...")
     rnn_trainer.train(Utrain, Ytrain, Utest, Ytest, plot_R=False, weight_the_mse=False)
-    topo_net.plot_weight_vs_dist(rnn_trainer.trained_params['R'])
+    # topo_net.plot_weight_vs_dist(rnn_trainer.trained_params['R'])
 
     print("Plotting network...")
     rnn_trainer.plot(Utest, Ytest, text_only=False)

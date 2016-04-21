@@ -10,8 +10,8 @@ NET_TYPES = {'SRNN':layers.SRNN_Layer,
              'LSTM':layers.LSTM_Layer,
              'GRU':layers.GRU_Layer,
              'EDSRNN':layers.EDSRNN_Layer,
-             'EDGRU':layers.EDGRU_Layer}
-
+             'EDGRU':layers.EDGRU_Layer,
+             'EI':layers.EI_Layer}
 
 class Basic_Network(object):
 

@@ -72,6 +72,55 @@ class SRNN_Layer(object):
     def gradient(self, error, state):
         return tf.gradients(error, state[0])
 
+
+class EI_Layer(object):
+
+    def __init__(self, n_input, n_unit, hparams):
+        self.n_input = n_input
+        self.n_unit = n_unit
+
+        assert 'sign' in hparams, "Must supply 'sign' in hparams, a vector of length n_unit that has 1 for excitatory neurons, -1 for inhibitory neurons"
+        self.sign = hparams['sign']
+        assert len(self.sign) == self.n_unit, "Wrong size for hparams['sign'], must be of length %d" % n_unit
+
+        M = np.ones([n_unit, n_unit])
+        if 'mask' in hparams:
+            M = hparams['mask']
+        assert M.shape == (n_unit, n_unit)
+
+        with tf.name_scope('ei_layer'):
+            self.M = tf.constant(M.astype('float32'), name='M')
+            self.D = tf.constant(np.diag(self.sign.astype('float32')), name='D')
+            self.gr = tf.Variable(tf.ones([1]), name='gr')
+            self.Jr = tf.Variable(init_weights(n_unit, n_unit, hparams), name='Jr')
+            self.b = tf.Variable(tf.zeros([1, n_unit]), name='b')
+
+            self.R = tf.matmul(self.D, tf.sigmoid(self.Jr)) * self.M * self.gr
+            self.W = tf.Variable(init_weights(n_input, n_unit, hparams), name='W')
+
+        if 'activation' in hparams:
+            assert hparams['activation'] in ['sigmoid', 'relu', 'elu']
+            self.activation = getattr(tf.nn, hparams['activation'])
+        else:
+            self.activation = tf.nn.relu
+
+    def get_new_states(self, n_state):
+        new_h = tf.Variable(tf.zeros([n_state, self.n_unit]), trainable=False, name='h')
+        return new_h,
+
+    def step(self, state, x, *d_state, **kwargs):
+        """Updates returns the state updated by input x"""
+        h = state[0]
+
+        xxx = tf.matmul(x, self.W)
+        hhh = tf.matmul(h, self.R)
+        h = self.activation(xxx + hhh + self.b)
+
+        return h,
+
+    def gradient(self, error, state):
+        return tf.gradients(error, state[0])
+
 class EDSRNN_Layer(SRNN_Layer):
 
     def __init__(self, n_input, n_unit, hparams):
