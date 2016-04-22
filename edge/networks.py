@@ -121,8 +121,11 @@ class Basic_Network(object):
 
             return self.rnn_layer.R.assign(Rnew)
 
-    def activity_cost(self, h, a):
-        return tf.reduce_mean(tf.matmul(tf.square(h), a))
+    def activity_cost(self, h, a, deg=2):
+        if deg == 2:
+            return tf.reduce_mean(tf.matmul(tf.square(h), a))
+        elif deg == 1:
+            return tf.reduce_mean(tf.matmul(tf.abs(h), a))
 
     def rescale_R(self, scale, name=None):
 

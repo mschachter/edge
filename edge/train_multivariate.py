@@ -124,7 +124,10 @@ class MultivariateRNNTrainer(object):
             # compute the cost at time t across all batches
             activity_cost = 0.
             if 'activity_cost' in self.hparams:
-                activity_cost = self.net.activity_cost(hnext, self.hparams['activity_cost'])
+                deg = 2
+                if 'activity_deg' in self.hparams:
+                    deg = self.hparams['activity_deg']
+                activity_cost = self.net.activity_cost(hnext, self.hparams['activity_cost'], deg=deg)
             sign_cost = 0
             if 'sign_matrix' in self.hparams:
                 sign_lambda = 1.
@@ -491,8 +494,10 @@ if __name__ == '__main__':
     M = get_distance_mask(topo_net.D, space_const=0.350)
     hparams['mask'] = M
 
-    # acost = np.ones([n_hid, 1], dtype='float32')
-    # hparams['activity_cost'] = acost
+    acost = np.ones([n_hid, 1], dtype='float32') * 1e-1
+    acost[num_e:] = 0.
+    hparams['activity_cost'] = acost
+    hparams['activity_deg'] = 1
 
     print("Building network...")
     rnn_trainer = MultivariateRNNTrainer(hparams)
