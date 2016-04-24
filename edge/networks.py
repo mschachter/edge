@@ -188,4 +188,9 @@ class Deep_Recurrent_Network():
         return 0.
 
     def weight_cost(self):
-        pass
+        wcost_list = [layer.weight_cost() for layer in self.layers]
+        wcost_list = tf.concat(0, wcost_list)
+        return tf.reduce_mean(wcost_list)
+
+    def initial_state(self, n_batches):
+        return [layer.initial_state(n_batches) for layer in self.layers]

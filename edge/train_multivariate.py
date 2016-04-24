@@ -80,7 +80,6 @@ class MultivariateRNNTrainer(object):
             self.train_vars['grads'] = grads
             self.train_vars['params'] = params
             self.train_vars['apply_grads'] = apply_grads
-            self.train_vars['R'] = self.net.rnn_layer.R
 
     def create_batch_train_op(self):
 
@@ -114,9 +113,12 @@ class MultivariateRNNTrainer(object):
             # compute the activity cost at time t across all batches
             activity_cost = self.net.activity_cost(next_state)
 
+            # compute the mean squared error at time t, across batches
             mse = tf.reduce_mean(tf.reshape(tf.square(y - yhat), [-1]))
-            err = mse + weight_cost + activity_cost
-            batch_err_list.append(tf.expand_dims(err, 0))
+
+            # compute the total cost at time t, across batches, and append it to the list of costs
+            total_cost = mse + weight_cost + activity_cost
+            batch_err_list.append(tf.expand_dims(total_cost, 0))
 
         # compute the overall training error, the mean of the mean square error at each time point
         batch_err_list = tf.concat(0, batch_err_list)
@@ -159,7 +161,7 @@ class MultivariateRNNTrainer(object):
         assert t_mem == t_mem2
 
         # create a random initial state to start with
-        h0_orig = np.random.randn(n_batches, self.hparams['n_unit']) * 1e-3
+        h0_orig = self.net.initial_state(n_batches)
         h0 = h0_orig
 
         test_check = False
@@ -186,74 +188,15 @@ class MultivariateRNNTrainer(object):
                     # put the input and output matrices in the feed dictionary for this minibatch
                     Uk = Utrain[:, seg, :, :]
                     Yk = Ytrain[:, seg, :, :]
-                    feed_dict = {self.train_vars['U']:Uk, self.train_vars['Y']:Yk, self.train_vars['h']:h0}
+                    feed_dict = {self.train_vars['U']:Uk, self.train_vars['Y']:Yk}
+                    for k,state_placeholder in enumerate(self.train_vars['state']):
+                        feed_dict[state_placeholder] = h0[k]
 
-                    # run the session to train the model for this minibatch
-                    if plot_R:
-                        Jr0 = None
-                        if self.hparams['rnn_type'] == 'EI':
-                            Jr0 = session.run(self.net.rnn_layer.Jr)
-                        R0 = session.run(self.net.rnn_layer.R)
-                        b0 = session.run(self.net.rnn_layer.b)
-
-                    to_compute = [self.train_vars[vname] for vname in ['batch_err', 'eta', 'hnext', 'apply_grads']]
+                    to_compute = [self.train_vars['batch_err'], self.train_vars['eta'], self.train_vars['apply_grads']]
+                    to_compute.extend(self.train_vars['next_state'])
                     compute_vals = session.run(to_compute, feed_dict=feed_dict)
-                    train_error_val, eta_val, hnext_val = compute_vals[:3]
-
-                    if plot_R:
-                        Jr1 = None
-                        if self.hparams['rnn_type'] == 'EI':
-                            Jr1 = session.run(self.net.rnn_layer.Jr)
-                        R1 = session.run(self.train_vars['R'])
-                        b1 = session.run(self.net.rnn_layer.b)
-
-                    if plot_R:
-
-                        ncols = 2
-                        if self.hparams['rnn_type'] == 'EI':
-                            ncols = 3
-
-                        plt.figure()
-                        gs = plt.GridSpec(100, ncols)
-
-                        ax = plt.subplot(gs[:60, 0])
-                        absmax = np.abs(R0).max()
-                        plt.imshow(R0, interpolation='nearest', aspect='auto', vmin=-absmax, vmax=absmax, cmap=plt.cm.seismic)
-                        plt.colorbar()
-                        plt.title('Recurrent Weight Matrix (initial): step=%d, seg=%d' % (step, seg))
-
-                        ax = plt.subplot(gs[70:, 0])
-                        absmax = np.abs(b0).max()
-                        plt.plot(b0.squeeze(), 'k-', linewidth=3.0, alpha=0.7)
-                        plt.axis('tight')
-                        plt.ylim(-absmax, absmax)
-
-                        ax = plt.subplot(gs[:60, 1])
-                        absmax = np.abs(R1).max()
-                        plt.imshow(R1, interpolation='nearest', aspect='auto', vmin=-absmax, vmax=absmax, cmap=plt.cm.seismic)
-                        plt.colorbar()
-                        plt.title('Recurrent Weight Matrix (post-step): step=%d, seg=%d' % (step, seg))
-
-                        ax = plt.subplot(gs[70:, 1])
-                        absmax = np.abs(b1).max()
-                        plt.plot(b1.squeeze(), 'k-', linewidth=3.0, alpha=0.7)
-                        plt.axis('tight')
-                        plt.ylim(-absmax, absmax)
-
-                        if self.hparams['rnn_type'] == 'EI':
-                            ax = plt.subplot(gs[:45, 2])
-                            absmax = np.abs(Jr0).max()
-                            plt.imshow(Jr0, interpolation='nearest', aspect='auto', vmin=-absmax, vmax=absmax, cmap=plt.cm.seismic)
-                            plt.colorbar()
-                            plt.title('Jr0: step=%d, seg=%d' % (step, seg))
-
-                            ax = plt.subplot(gs[55:, 2])
-                            absmax = np.abs(Jr1).max()
-                            plt.imshow(Jr1, interpolation='nearest', aspect='auto', vmin=-absmax, vmax=absmax, cmap=plt.cm.seismic)
-                            plt.colorbar()
-                            plt.title('Jr1: step=%d, seg=%d' % (step, seg))
-
-                        plt.show()
+                    train_error_val, eta_val = compute_vals[:2]
+                    hnext_val = compute_vals[3:]
 
                     # get the last hidden state value to use on the next minibatch
                     h0 = hnext_val
@@ -265,7 +208,11 @@ class MultivariateRNNTrainer(object):
                 test_err = np.nan
                 if test_check and ((step % test_check_interval == 0) or (step == n_train_steps-1)):
                     # average initial states across batches to get an initial state for the test set
-                    h0_mean = h0.mean(axis=0).reshape([1, self.hparams['n_unit']])
+                    h0_mean = list()
+                    for h in h0:
+                        nb,nu = h.shape
+                        h0_mean.append(h.mean(axis=0).reshape([1, nu]))
+
                     Yhat = self.run_network(Utest, h0_mean, session)
                     test_err = np.mean((Yhat - Ytest)**2)
                     epoch_test_errs.append((step, test_err))
@@ -278,7 +225,7 @@ class MultivariateRNNTrainer(object):
             self.epoch_errs = np.array(epoch_errs)
             self.epoch_test_errs = np.array(epoch_test_errs)
 
-            self.trained_params = {'R':session.run(self.train_vars['R'])}
+            self.trained_params = {}
 
     def run_network(self, U, h0, session):
         n_segs,t_mem_run,n_in = U.shape
@@ -286,16 +233,20 @@ class MultivariateRNNTrainer(object):
         h = h0
 
         to_compute = list()
+        npreds = len(self.run_vars['net_preds'])
         to_compute.extend(self.run_vars['net_preds'])
-        to_compute.append(self.run_vars['hnext'])
+        to_compute.extend(self.run_vars['next_state'])
 
         for k in range(n_segs):
             si = k*t_mem_run
             ei = si + t_mem_run
-            compute_vals = session.run(to_compute,
-                                       feed_dict={self.run_vars['U']:U[k, :, :], self.run_vars['h']:h})
-            ypred = np.array(compute_vals[:-1]).squeeze()
-            h = np.array(compute_vals[-1])
+
+            fdict = {self.run_vars['U']:U[k, :, :]}
+            for k,state_placeholder in enumerate(self.run_vars['state']):
+                fdict[state_placeholder] = h[k]
+            compute_vals = session.run(to_compute, feed_dict=fdict)
+            ypred = np.array(compute_vals[:npreds]).squeeze()
+            h = np.array(compute_vals[npreds:])
             Yhat[si:ei, :] = ypred
 
         return Yhat.reshape([n_segs, t_mem_run, self.hparams['n_out']])
@@ -353,6 +304,9 @@ class MultivariateRNNTrainer(object):
                 plt.legend(['Real', 'Prediction'])
                 plt.title('cc=%0.2f' % ycc)
 
+        plt.show()
+
+        """
         if not text_only:
             plt.figure()
             ax = plt.subplot(1, 2, 1)
@@ -370,7 +324,7 @@ class MultivariateRNNTrainer(object):
             plt.legend(['+', '-'])
             plt.title('Weight Distribution (magnitude)')
 
-            plt.show()
+        """
 
 
 def read_config(config_file, n_in, n_out):
@@ -391,6 +345,7 @@ def read_config(config_file, n_in, n_out):
                 else:
                     layer_n_in = layers[k-1]['n_unit']
 
+                ldict['n_in'] = layer_n_in
                 if ldict['rnn_type'] == 'EI':
                     layers.append(EI_LayerHelper.parse_config(ldict, layer_n_in))
                 else:
@@ -462,7 +417,7 @@ if __name__ == '__main__':
     print("Utest.shape=" + str(Utest.shape))
     print("Ytest.shape=" + str(Ytest.shape))
 
-    hparams = read_config('param/deep_ei.yaml', n_in, n_out)
+    hparams = read_config('param/deep_srnn.yaml', n_in, n_out)
 
     print('')
     print('------ Network Params ------')
@@ -474,13 +429,10 @@ if __name__ == '__main__':
         print("Layer %d: type=%s, n_in=%d, n_unit=%d, activation=%s" %
               (k, ldict['rnn_type'], ldict['n_in'], ldict['n_unit'], ldict['activation']))
 
-    sys.exit(0)
-
     print("Building network...")
     rnn_trainer = MultivariateRNNTrainer(hparams)
     print("Training network...")
-    rnn_trainer.train(Utrain, Ytrain, Utest, Ytest, plot_R=False, weight_the_mse=False)
-    # topo_net.plot_weight_vs_dist(rnn_trainer.trained_params['R'])
+    rnn_trainer.train(Utrain, Ytrain, Utest, Ytest, plot_R=False)
 
     print("Plotting network...")
     rnn_trainer.plot(Utest, Ytest, text_only=False)

@@ -32,6 +32,7 @@ class SRNN_Layer(object):
     def __init__(self, n_input, n_unit, hparams):
         self.n_input = n_input
         self.n_unit = n_unit
+        self.hparams = hparams
 
         with tf.name_scope('srnn_layer'):
             self.W = tf.Variable(init_weights(n_input, n_unit, hparams), name = 'W')
@@ -48,6 +49,9 @@ class SRNN_Layer(object):
         new_h = tf.Variable(tf.zeros([n_state, self.n_unit]), trainable=False, name = 'h')
         return new_h,
 
+    def initial_state(self, n_batches):
+        return np.random.randn(n_batches, self.n_unit)
+
     def step(self, state, x, *d_state, **kwargs):
         """Updates returns the state updated by input x"""
         h = state[0]
@@ -58,6 +62,13 @@ class SRNN_Layer(object):
         h = self.activation(xxx + hhh + self.b)
 
         return h,
+
+    def weight_cost(self):
+        if 'lambda2' in self.hparams and self.hparams['lambda2'] > 0:
+            l2_W = tf.reduce_mean(tf.square(self.W))
+            l2_R = tf.reduce_mean(tf.square(self.R))
+            l2_b = tf.reduce_mean(tf.square(self.b))
+            return self.hparams['lambda2']*(l2_W + l2_R + l2_b)
 
     def gradient(self, error, state):
         return tf.gradients(error, state[0])
