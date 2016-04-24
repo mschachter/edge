@@ -4,14 +4,17 @@ from copy import deepcopy
 
 import numpy as np
 import matplotlib.pyplot as plt
+import sys
 
 import tensorflow as tf
 import time
 
-from edge.topo import EITopoNet, get_distance_mask
+import yaml
+
+from edge.ei_helper import EI_LayerHelper, get_distance_mask
 
 from edge.test.data import create_sample_data
-from edge.networks import Basic_Network
+from edge.networks import Basic_Network, Deep_Recurrent_Network
 
 
 class MultivariateRNNTrainer(object):
@@ -42,7 +45,7 @@ class MultivariateRNNTrainer(object):
         with self.train_graph.as_default():
 
             # construct the RNN
-            self.net = Basic_Network(self.hparams['n_in'], self.hparams, n_output=self.hparams['n_out'])
+            self.net = Deep_Recurrent_Network(self.hparams)
 
             with tf.name_scope('training'):
                 print("Building training op...")
@@ -79,9 +82,6 @@ class MultivariateRNNTrainer(object):
             self.train_vars['apply_grads'] = apply_grads
             self.train_vars['R'] = self.net.rnn_layer.R
 
-            if 'sign_constrain' in self.hparams and 'sign_matrix' in self.hparams:
-                self.train_vars['sign_constrain'] = self.net.sign_constraint_R(hparams['sign_matrix'])
-
     def create_batch_train_op(self):
 
         batch_size = self.hparams['batch_size']
@@ -92,23 +92,16 @@ class MultivariateRNNTrainer(object):
         # the output placeholder, contains the desired multivariate output time series for a batch
         Y = tf.placeholder(tf.float32, shape=[batch_size, self.hparams['t_mem'], self.hparams['n_out']])
 
-        # the iteration number placeholder
-        mse_weight = tf.placeholder(tf.float32)
+        # create placeholders for the initial state, one placeholder for each layer
+        state_placeholders = list()
+        for layer in self.net.layers:
+            state_placeholders.append(tf.placeholder(tf.float32, shape=[batch_size, layer.n_unit]))
 
-        # the initial state placeholder, contains the initial state used at the beginning of a batch,
-        # for each batch
-        h = tf.placeholder(tf.float32, shape=[batch_size, self.hparams['n_unit']])
-        hnext = h
-        lambda2_val = self.hparams['lambda2']
-        if 'l2_mat' in self.hparams:
-            R_cost = self.net.l2_R_elementwise(self.hparams['l2_mat'], lambda2_val)
-        else:
-            R_cost = self.net.l2_R(lambda2_val)
-        l2_cost = self.net.l2_W(lambda2_val) + R_cost + self.net.l2_Wout(lambda2_val)
+        next_state = state_placeholders
+        weight_cost = self.net.weight_cost()
 
         # The forward propagation graph
         batch_err_list = list()
-        # net_preds = list()
         for t in range(self.hparams['t_mem']):
             # construct the input vector at time t by slicing the input placeholder U, do the same for Y
             u = tf.reshape(tf.slice(U, [0, t, 0], [batch_size, 1, self.hparams['n_in']]), [batch_size, self.hparams['n_in']])
@@ -116,41 +109,31 @@ class MultivariateRNNTrainer(object):
 
             # create an op to move the network state forward one time step, given the input
             # vector u and previous hidden state h. do this for all batches in parallel
-            (hnext,), yhat = self.net.step((hnext,), u)
+            next_state, yhat = self.net.step(next_state, u)
 
-            # save the prediction op for this time step
-            # net_preds.append(yhat)
+            # compute the activity cost at time t across all batches
+            activity_cost = self.net.activity_cost(next_state)
 
-            # compute the cost at time t across all batches
-            activity_cost = 0.
-            if 'activity_cost' in self.hparams:
-                deg = 2
-                if 'activity_deg' in self.hparams:
-                    deg = self.hparams['activity_deg']
-                activity_cost = self.net.activity_cost(hnext, self.hparams['activity_cost'], deg=deg)
-            sign_cost = 0
-            if 'sign_matrix' in self.hparams:
-                sign_lambda = 1.
-                if 'sign_lambda' in self.hparams:
-                    sign_lambda = self.hparams['sign_lambda']
-                sign_cost = self.net.sign_cost(self.hparams['sign_matrix'], sign_lambda)
             mse = tf.reduce_mean(tf.reshape(tf.square(y - yhat), [-1]))
-            err = mse*mse_weight + l2_cost + activity_cost + sign_cost
+            err = mse + weight_cost + activity_cost
             batch_err_list.append(tf.expand_dims(err, 0))
 
         # compute the overall training error, the mean of the mean square error at each time point
         batch_err_list = tf.concat(0, batch_err_list)
         batch_err = tf.reduce_mean(batch_err_list)
 
-        return {'U':U, 'Y':Y, 'batch_err':batch_err, 'h':h, 'hnext':hnext, 'mse_weight':mse_weight}
+        return {'U':U, 'Y':Y, 'state':state_placeholders, 'batch_err':batch_err, 'next_state':next_state}
 
     def create_run_op(self):
         # the input placeholder, contains the entire multivariate input time series for a batch
         U = tf.placeholder(tf.float32, shape=[self.hparams['t_mem_run'], self.hparams['n_in']])
 
-        # the initial state placeholder, contains the initial state used at the beginning of a batch
-        h = tf.placeholder(tf.float32, shape=[1, self.hparams['n_unit']])
-        hnext = h
+        # create placeholders for the initial state, one placeholder for each layer
+        state_placeholders = list()
+        for layer in self.net.layers:
+            state_placeholders.append(tf.placeholder(tf.float32, shape=[1, layer.n_unit]))
+
+        next_state = state_placeholders
 
         # list to hold network outputs
         net_preds = list()
@@ -160,12 +143,12 @@ class MultivariateRNNTrainer(object):
 
             # create an op to move the network state forward one time step, given the input
             # vector u and previous hidden state h
-            (hnext,), yhat = self.net.step((hnext,), u)
+            next_state, yhat = self.net.step(next_state, u)
             net_preds.append(yhat)
 
-        return {'net_preds':net_preds, 'h':h, 'U':U, 'hnext':hnext}
+        return {'net_preds':net_preds, 'state':state_placeholders, 'U':U, 'next_state':next_state}
 
-    def train(self, Utrain, Ytrain, Utest=None, Ytest=None, test_check_interval=5, plot_R=False, weight_the_mse=False):
+    def train(self, Utrain, Ytrain, Utest=None, Ytest=None, test_check_interval=5, plot_R=False):
 
         n_train_steps = self.hparams['n_train_steps']
         
@@ -189,22 +172,12 @@ class MultivariateRNNTrainer(object):
 
             tf.initialize_all_variables().run()
 
-            if 'R0' in self.hparams:
-                session.run(self.net.rnn_layer.R.assign(self.hparams['R0']))
-            if 'b0' in self.hparams:
-                session.run(self.net.rnn_layer.b.assign(self.hparams['b0']))
-
             # for each training iteration
             epoch_errs = list()
             epoch_test_errs = list()
             for step in range(n_train_steps):
 
                 # print("step=%d, len(all_variables())=%d" % (step, len(tf.all_variables())))
-
-                mse_weight = 1.
-                if weight_the_mse:
-                    mse_weight = (1.0 + np.exp(-step / 20))**-1
-                    print("mse_weight=%f" % mse_weight)
 
                 stime = time.time()
                 eta_val = None
@@ -213,8 +186,7 @@ class MultivariateRNNTrainer(object):
                     # put the input and output matrices in the feed dictionary for this minibatch
                     Uk = Utrain[:, seg, :, :]
                     Yk = Ytrain[:, seg, :, :]
-                    feed_dict = {self.train_vars['U']:Uk, self.train_vars['Y']:Yk, self.train_vars['h']:h0,
-                                 self.train_vars['mse_weight']:mse_weight}
+                    feed_dict = {self.train_vars['U']:Uk, self.train_vars['Y']:Yk, self.train_vars['h']:h0}
 
                     # run the session to train the model for this minibatch
                     if plot_R:
@@ -401,6 +373,35 @@ class MultivariateRNNTrainer(object):
             plt.show()
 
 
+def read_config(config_file, n_in, n_out):
+
+    with open(config_file) as config_f:
+        net_params = yaml.load(config_f.read())
+
+    hparams = dict()
+    hparams['n_in'] = n_in
+    hparams['n_out'] = n_out
+    for key,val in net_params.items():
+        if key == 'layers':
+            layers = list()
+
+            for k,ldict in enumerate(val):
+                if k == 0:
+                    layer_n_in = n_in
+                else:
+                    layer_n_in = layers[k-1]['n_unit']
+
+                if ldict['rnn_type'] == 'EI':
+                    layers.append(EI_LayerHelper.parse_config(ldict, layer_n_in))
+                else:
+                    layers.append(ldict)
+
+            hparams['layers'] = layers
+        else:
+            hparams[key] = val
+
+    return hparams
+
 if __name__ == '__main__':
 
     np.random.seed(123456)
@@ -461,43 +462,19 @@ if __name__ == '__main__':
     print("Utest.shape=" + str(Utest.shape))
     print("Ytest.shape=" + str(Ytest.shape))
 
-    ei_ratio = 0.75 # excitatory neurons comprise 75% of the population
-    num_e = 100
-    n_hid = int(num_e / ei_ratio)
-    num_i = n_hid - num_e
+    hparams = read_config('param/deep_ei.yaml', n_in, n_out)
 
-    topo_net = EITopoNet()
-    topo_net.construct(num_e, num_i, plot=False)
+    print('')
+    print('------ Network Params ------')
+    for k,v in hparams.items():
+        if k != 'layers':
+            print('%s=%s' % (k, str(v)))
 
-    num_e = topo_net.num_e
-    num_i = topo_net.num_i
-    n_hid = num_e + num_i
+    for k,ldict in enumerate(hparams['layers']):
+        print("Layer %d: type=%s, n_in=%d, n_unit=%d, activation=%s" %
+              (k, ldict['rnn_type'], ldict['n_in'], ldict['n_unit'], ldict['activation']))
 
-    R0 = np.random.randn(n_hid, n_hid)*1e-4
-
-    hparams = {'rnn_type':'EI', 'n_in':n_in, 'n_out':n_out, 'n_unit':n_hid, 'activation':'relu', 't_mem':t_mem,
-               'opt_algorithm':'adam', 'n_train_steps':40, 'batch_size':n_batches, 'eta0':5e-2,
-               'dropout':{'R':0.0, 'W':0.0}, 'lambda2':0, 'b0':topo_net.b0,
-               't_mem_run':Utest.shape[1],
-               }
-
-    # dist_scale = 0.5
-    # hparams['l2_mat'] = topo_net.get_cost(e_scale=dist_scale, i_scale=dist_scale, plot=False, func_type='linear')
-
-    hparams['sign'] = topo_net.S[:, 0]
-
-    # mask most of the network connections
-    # M = np.random.rand(n_hid, n_hid)
-    # z = M < 0.90
-    # M[z] = 0.
-    # M[~z] = 1.
-    M = get_distance_mask(topo_net.D, space_const=0.350)
-    hparams['mask'] = M
-
-    acost = np.ones([n_hid, 1], dtype='float32') * 1e-1
-    acost[num_e:] = 0.
-    hparams['activity_cost'] = acost
-    hparams['activity_deg'] = 1
+    sys.exit(0)
 
     print("Building network...")
     rnn_trainer = MultivariateRNNTrainer(hparams)

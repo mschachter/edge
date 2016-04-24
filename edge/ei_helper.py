@@ -4,7 +4,7 @@ from lasp.colormaps import magma
 from lasp.plots import grouped_boxplot
 
 
-class EITopoNet(object):
+class EI_LayerHelper(object):
 
     def __init__(self):
         self.D = None
@@ -186,78 +186,46 @@ class EITopoNet(object):
         plt.xlabel('Distance (um)')
         plt.ylabel('Weight^2')
 
-    def get_cost(self, func_type='exp', e_scale=1., i_scale=1.,
-                 ei_strength=0.20, ie_strength=1.0, ee_strength=0.20, ii_strength=1.0,
-                 plot=False):
-        """ Returns a cost for each connection in the network.
+    @classmethod
+    def parse_config(cls, ldict, n_in, plot=False):
+        ei_helper = EI_LayerHelper()
 
-        :param func_type: The following types of functions are available:
-                            'exp'     f(d) = exp(d*scale)-1
-                            'linear'  f(d) = d*scale
-                            'log'     f(d) = log(1 + d*scale)
-        """
+        num_e = ldict['num_e']
+        ei_ratio = ldict['ei_ratio']
+        n_tot = int(num_e / ei_ratio)
+        num_i = n_tot - num_e
 
-        f = None
-        if func_type == 'exp':
-            f = lambda d,s: np.exp(d/s)-1.
-        elif func_type == 'linear':
-            f = lambda d,s: d*s
-        elif func_type == 'log':
-            f = lambda d,s: np.log(1 + d*s)
+        w = ldict['width'] / 2.
+        h = ldict['height'] / 2.
+        extent = (-w, w, -h, h)
+        ei_helper.construct(num_e, num_i, extent=extent, plot=plot)
+        num_e = ei_helper.num_e
+        num_i = ei_helper.num_i
+        n_tot = num_e + num_i
 
-        ntot = self.num_e + self.num_i
-        dist_cost = np.zeros([ntot, ntot])
+        params = dict()
+        params['rnn_type'] = 'EI'
 
-        # set the distance costs for excitatory connections
-        dist_cost[:self.num_e, :] = f(self.D[:self.num_e, :], e_scale)
+        params['n_in'] = n_in
+        params['n_unit'] = num_e + num_i
+        params['activation'] = ldict['activation']
+        params['lambda2'] = ldict['lambda2']
 
-        # set the distance cost for inhibitory connections
-        dist_cost[self.num_e:, :] = f(self.D[self.num_e:, :], i_scale)
+        params['sign'] = ei_helper.S[:, 0]
+        params['mask'] = get_distance_mask(ei_helper.D, ldict['space_const'])
+        params['b0'] = ei_helper.b0
 
-        # set the connection strength regularizers
-        type_cost = np.zeros([ntot, ntot])
+        if 'activity_deg' in ldict and ldict['activity_deg'] > 0:
+            print('n_tot=' + str(n_tot))
+            print('activity_lambda=' + str(ldict['activity_lambda']))
+            acost = np.ones([n_tot])*ldict['activity_lambda']
+            acost[num_e:] = 0.
+            params['activity_cost'] = acost
+            params['activity_deg'] = ldict['activity_deg']
 
-        # set E-E connection strengths
-        type_cost[:self.num_e, :self.num_e] = ee_strength
+        params['helper'] = ei_helper
 
-        # set E-I connection strengths
-        type_cost[:self.num_e, self.num_e:] = ei_strength
-
-        # set I-E connection strengths
-        type_cost[self.num_e:, :self.num_e] = ie_strength
-
-        # set I-I connection strengths
-        type_cost[self.num_e:, self.num_e:] = ii_strength
-
-        # multiply distance and connection strength costs to get total L2 cost
-        # l2_mat = dist_cost * type_cost
-        l2_mat = dist_cost
-
-        if plot:
-            plt.figure()
-            ax = plt.subplot(2, 2, 1)
-            plt.imshow(dist_cost, interpolation='nearest', aspect='auto', cmap=magma, vmin=0)
-            plt.title("Distance Cost")
-            plt.colorbar()
-
-            ax = plt.subplot(2, 2, 2)
-            plt.imshow(type_cost, interpolation='nearest', aspect='auto', cmap=magma, vmin=0)
-            plt.title("Type Cost")
-            plt.colorbar()
-
-            ax = plt.subplot(2, 2, 3)
-            plt.imshow(l2_mat, interpolation='nearest', aspect='auto', cmap=magma, vmin=0)
-            plt.title("Total Cost")
-            plt.colorbar()
-
-            ax = plt.subplot(2, 2, 4)
-            plt.imshow(self.S, interpolation='nearest', aspect='auto', cmap=plt.cm.seismic, vmin=-1, vmax=1)
-            plt.title("Sign")
-            plt.colorbar()
-
-            plt.show()
-
-        return l2_mat.astype('float32')
+        return params
 
 
 def get_distance_mask(D, space_const=0.500):
@@ -284,7 +252,7 @@ if __name__ == '__main__':
     num_total = int(250 / ei_ratio)
     num_i = num_total - num_e
 
-    net = EITopoNet()
+    net = EI_LayerHelper()
     net.construct(num_e, num_i, plot=True)
 
 

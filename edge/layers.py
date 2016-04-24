@@ -38,22 +38,11 @@ class SRNN_Layer(object):
             self.R = tf.Variable(init_weights(n_unit, n_unit, hparams), name = 'R')
             self.b = tf.Variable(tf.zeros([1, n_unit]), name = 'b')
 
-        self.dropout = {'W':0, 'R':0}
-
         if 'activation' in hparams:
             assert hparams['activation'] in ['sigmoid', 'tanh', 'relu', 'elu']
             self.activation = getattr(tf.nn, hparams['activation'])
         else:
             self.activation = tf.nn.tanh
-
-        if 'dropout' in hparams:
-            if np.isscalar(hparams['dropout']):
-                self.dropout['W'] = hparams['dropout']
-                self.dropout['R'] = hparams['dropout']
-            elif type(hparams['dropout']) is dict:
-                assert 'W' in hparams['dropout']
-                assert 'R' in hparams['dropout']
-                self.dropout = hparams['dropout']
 
     def get_new_states(self, n_state):
         new_h = tf.Variable(tf.zeros([n_state, self.n_unit]), trainable=False, name = 'h')
@@ -64,11 +53,6 @@ class SRNN_Layer(object):
         h = state[0]
         W = self.W
         R = self.R
-        if self.dropout['W'] > 0:
-            W = tf.nn.dropout(W, self.dropout['W'])
-        if self.dropout['R'] > 0:
-            R = tf.nn.dropout(R, self.dropout['R'])
-
         xxx = tf.matmul(x, W)
         hhh = tf.matmul(h, R)
         h = self.activation(xxx + hhh + self.b)
@@ -97,12 +81,13 @@ class EI_Layer(object):
         with tf.name_scope('ei_layer'):
             self.M = tf.constant(M.astype('float32'), name='M')
             self.D = tf.constant(np.diag(self.sign.astype('float32')), name='D')
-            self.gr = tf.Variable(tf.ones([1]), name='gr')
-            self.Jr = tf.Variable(init_weights_ei(n_unit, n_unit, hparams, scale=1000.), name='Jr')
-            self.b = tf.Variable(tf.zeros([1, n_unit]), name='b')
+            self.gr = tf.Variable(tf.ones([1]), name='gr', trainable=True)
+            self.Jr = tf.Variable(init_weights_ei(n_unit, n_unit, hparams, scale=1000.), name='Jr', trainable=True)
+            self.b = tf.Variable(tf.zeros([1, n_unit]), name='b', trainable=True)
 
             self.R = tf.matmul(self.D, tf.sigmoid(self.Jr)) * self.M * self.gr
-            self.W = tf.Variable(init_weights(n_input, n_unit, hparams), name='W')
+
+            self.W = tf.Variable(init_weights(n_input, n_unit, hparams), name='W', trainable=True)
 
         if 'activation' in hparams:
             assert hparams['activation'] in ['sigmoid', 'relu', 'elu']
@@ -271,3 +256,35 @@ class LSTM_Layer(object):
         # but who knows
         _, c = state
         return tf.gradients(error, c)
+
+
+class Connector(object):
+
+    def __init__(self, n_in, n_out, params=dict()):
+
+        with tf.name_scope('connector') as scope:
+            self.Jw = tf.Variable(init_weights(n_in, n_out, params), name= 'Jw', trainable=True)
+
+            M = np.ones([n_in, n_out])
+            if 'mask' in params:
+                M = params['mask']
+                assert M.shape == (n_in, n_out)
+            self.M = tf.constant(M.astype('float32'), name='M')
+
+            self.signed = False
+            if 'sign' in params:
+                self.signed = True
+                assert len(params['sign']) == n_out
+                self.sign = tf.constant(np.diag(params['sign']).astype('float32'), name='sign')
+                self.gain = tf.Variable([1.], name='gain', trainable=True)
+
+    def step(self, input):
+        if self.signed:
+            W = tf.matmul(self.gain, tf.sigmoid(self.Jw)) * self.M
+        else:
+            W = self.M * self.Jw
+
+        return tf.matmul(input, W)
+
+
+

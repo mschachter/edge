@@ -13,6 +13,7 @@ NET_TYPES = {'SRNN':layers.SRNN_Layer,
              'EDGRU':layers.EDGRU_Layer,
              'EI':layers.EI_Layer}
 
+
 class Basic_Network(object):
 
     def __init__(self, n_input, hparams, n_output=None):
@@ -131,3 +132,60 @@ class Basic_Network(object):
 
         with tf.op_scope([scale], name, "rescale_R") as scope:
             return self.rnn_layer.R.assign(scale*self.rnn_layer.R)
+
+
+class Deep_Recurrent_Network():
+
+    def __init__(self, hparams):
+
+        self.hparams = hparams
+        self.layers = list()
+
+        n_total_units = 0
+        # construct each layer according to the configuration options specified in hparams
+        n_in = self.hparams['n_in']
+        for k,ldict in enumerate(self.hparams['layers']):
+            with tf.name_scope('layer%d' % k) as scope:
+                # make the layer, which should be responsible for reading the relevant options from the configuration
+                assert ldict['rnn_type'] in NET_TYPES
+                rnn_class = NET_TYPES[ldict['rnn_type']]
+                rnn_layer = rnn_class(n_in, ldict['n_unit'], ldict)
+                self.layers.append(rnn_layer)
+                n_total_units += ldict['n_unit']
+
+            # specify the number of inputs for the next layer
+            n_in = ldict['n_unit']
+
+        # construct the output layer
+        with tf.name_scope('output_layer') as scope:
+            self.output_layer = layers.Linear_Layer(n_total_units, hparams['n_out'], hparams)
+
+    def step(self, state, x_input):
+        """
+        :param state: A list of state vectors, one state vector for each layer. Each state vector is of
+                      size (num_batches, num_units_in_layer).
+        :param x_input: The input to the network.
+        """
+
+        with tf.name_scope('step') as scope:
+            # run the input through each layer
+            the_input = x_input
+            layer_states = list()
+            for k,layer in enumerate(self.layers):
+                (layer_state,) = layer.step((state[k],), the_input)
+                layer_states.append(layer_state)
+                the_input = layer_state
+
+            # concatenate the hidden states together into one vector
+            z = tf.concat(1, layer_states)
+
+            # run the output layer
+            output = self.output_layer.output(z)
+
+        return layer_states, output
+
+    def activity_cost(self, state):
+        return 0.
+
+    def weight_cost(self):
+        pass

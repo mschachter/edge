@@ -1,0 +1,22 @@
+t_mem: 20
+t_mem_run: 50
+opt_algorithm: 'adam'
+n_train_steps: 40
+batch_size: 10
+eta0: 0.05
+layers:
+  -
+    rnn_type: 'EI'
+    width: 2
+    height: 1
+    num_e: 100
+    ei_ratio: 0.75
+    lambda2: 0
+    activation: 'relu'
+    activity_deg: 2
+    activity_lambda: 0.1
+    space_const: 0.350
+    input_connector:
+      type: 'normal'
+      lambda2: 0
+
