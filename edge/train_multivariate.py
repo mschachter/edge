@@ -2,6 +2,7 @@ from __future__ import division
 
 from copy import deepcopy
 
+import h5py
 import numpy as np
 import matplotlib.pyplot as plt
 import sys
@@ -150,7 +151,7 @@ class MultivariateRNNTrainer(object):
 
         return {'net_preds':net_preds, 'state':state_placeholders, 'U':U, 'next_state':next_state}
 
-    def train(self, Utrain, Ytrain, Utest=None, Ytest=None, test_check_interval=5, plot_R=False):
+    def train(self, Utrain, Ytrain, Utest, Ytest, test_check_interval=5, plot_layers_during_training=False):
 
         n_train_steps = self.hparams['n_train_steps']
         
@@ -222,10 +223,19 @@ class MultivariateRNNTrainer(object):
                 print('iter=%d, eta=%0.6f, train_err=%0.6f +/- %0.6f, test_err=%0.6f, time=%0.3fs' % \
                       (step, eta_val, seg_errs.mean(), seg_errs.std(ddof=1), test_err, etime))
 
+                if plot_layers_during_training:
+                    for k,layer in enumerate(self.net.layers):
+                        layer.plot(session)
+                        plt.suptitle('Iter %d: Layer %d, type=%s' % (step, k, layer.hparams['rnn_type']))
+                    plt.show()
+
             self.epoch_errs = np.array(epoch_errs)
             self.epoch_test_errs = np.array(epoch_test_errs)
 
-            self.trained_params = {}
+            self.trained_params = dict()
+            for k,layer in enumerate(self.net.layers):
+                ldict = layer.get_saveable_params(session)
+                self.trained_params['layer%d' % k] = ldict
 
     def run_network(self, U, h0, session):
         n_segs,t_mem_run,n_in = U.shape
@@ -246,7 +256,7 @@ class MultivariateRNNTrainer(object):
                 fdict[state_placeholder] = h[k]
             compute_vals = session.run(to_compute, feed_dict=fdict)
             ypred = np.array(compute_vals[:npreds]).squeeze()
-            h = np.array(compute_vals[npreds:])
+            h = compute_vals[npreds:]
             Yhat[si:ei, :] = ypred
 
         return Yhat.reshape([n_segs, t_mem_run, self.hparams['n_out']])
@@ -255,6 +265,7 @@ class MultivariateRNNTrainer(object):
         n_train_steps = self.hparams['n_train_steps']
 
         if not text_only:
+            # make a figure that shows the training and validation error over epochs
             plt.figure()
             gs = plt.GridSpec(100, 100)
 
@@ -284,6 +295,7 @@ class MultivariateRNNTrainer(object):
         row_padding = 5
 
         for k in range(nf):
+            # compute the correlation coefficient for each output prediction
             yt = Ytest[:, :, k].reshape([n_segs_test*t_test_run])
             yhatt = self.test_preds[:, :, k].reshape([n_segs_test*t_test_run])
             ycc = np.corrcoef(yt, yhatt)[0, 1]
@@ -292,6 +304,7 @@ class MultivariateRNNTrainer(object):
                 print("Output %d: cc=%0.2f" % (k, ycc))
 
             else:
+                # make a plot of the validation output series and the prediction
                 gs_i = k*nrows_per_plot
                 gs_e = ((k+1)*nrows_per_plot)-row_padding
                 ax = plt.subplot(gs[gs_i:gs_e, 35:])
@@ -304,27 +317,29 @@ class MultivariateRNNTrainer(object):
                 plt.legend(['Real', 'Prediction'])
                 plt.title('cc=%0.2f' % ycc)
 
-        plt.show()
-
-        """
         if not text_only:
-            plt.figure()
-            ax = plt.subplot(1, 2, 1)
-            R = self.trained_params['R']
-            absmax = np.abs(R).max()
-            plt.imshow(R, interpolation='nearest', aspect='auto', vmin=-absmax, vmax=absmax, cmap=plt.cm.seismic)
-            plt.colorbar()
-            plt.title('Recurrent Weight Matrix')
+            # plot the layers
+            pass
 
-            ax = plt.subplot(1, 2, 2)
-            Rpos = R[R > 0]
-            Rneg = R[R < 0]
-            plt.hist(Rpos.ravel(), bins=25, log=True, color='r', alpha=0.7, normed=True)
-            plt.hist(np.abs(Rneg).ravel(), bins=25, log=True, color='b', alpha=0.7, normed=True)
-            plt.legend(['+', '-'])
-            plt.title('Weight Distribution (magnitude)')
+    def save(self, output_file):
 
-        """
+        hf = h5py.File(output_file, 'w')
+
+        hf.attrs['n_layers'] = len(self.net.layers)
+        for k,v in self.hparams.items():
+            if np.isscalar(v) or isinstance(v, str):
+                hf.attrs[k] = v
+
+        hf['epoch_test_errs'] = self.epoch_test_errs
+        hf['epoch_errs'] = self.epoch_errs
+        hf['test_preds'] = self.test_preds
+
+        for lkey,ldict in self.trained_params.items():
+            lgrp = hf.create_group(lkey)
+            for pname,pval in ldict.items():
+                lgrp[pname] = pval
+
+        hf.close()
 
 
 def read_config(config_file, n_in, n_out):
@@ -386,22 +401,6 @@ if __name__ == '__main__':
     print("Utrain.shape=" + str(Utrain.shape))
     print("Ytrain.shape=" + str(Ytrain.shape))
 
-    """
-    plt.figure()
-
-    ax = plt.subplot(1, 2, 1)
-    plt.hist(Utrain.ravel(), bins=25, color='r', alpha=0.7)
-    plt.axis('tight')
-    plt.title('Distribution of Inputs')
-
-    ax = plt.subplot(1, 2, 2)
-    plt.hist(Ytrain.ravel(), bins=25, color='b', alpha=0.7)
-    plt.axis('tight')
-    plt.title('Distribution of Outputs')
-
-    plt.show()
-    """
-
     # create some fake data for validation
     t_mem_run = 50
     t_test_total = 1000
@@ -432,8 +431,9 @@ if __name__ == '__main__':
     print("Building network...")
     rnn_trainer = MultivariateRNNTrainer(hparams)
     print("Training network...")
-    rnn_trainer.train(Utrain, Ytrain, Utest, Ytest, plot_R=False)
-
-    print("Plotting network...")
+    rnn_trainer.train(Utrain, Ytrain, Utest, Ytest, plot_layers_during_training=False)
     rnn_trainer.plot(Utest, Ytest, text_only=False)
 
+    rnn_trainer.save('/tmp/rnn.h5')
+
+    # print("Plotting network...")

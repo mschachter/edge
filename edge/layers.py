@@ -1,5 +1,8 @@
-import tensorflow as tf
 import numpy as np
+import matplotlib.pyplot as plt
+
+import tensorflow as tf
+
 
 def init_weights(n_input, n_unit, hparams, scale=1.):
 
@@ -63,6 +66,24 @@ class SRNN_Layer(object):
 
         return h,
 
+    def activity_cost(self, state):
+        return 0.
+
+    def get_saveable_params(self, session):
+        to_compute = [self.W, self.R, self.b]
+        vals = session.run(to_compute)
+        params = dict()
+        for k,t in enumerate(to_compute):
+            tname = t.name.split(':')[0]
+            tname = tname.split('/')[-1]
+            params[tname] = vals[k]
+
+        for k,v in self.hparams.items():
+            if np.isscalar(v) or isinstance(v, str):
+                params[k] = v
+
+        return params
+
     def weight_cost(self):
         if 'lambda2' in self.hparams and self.hparams['lambda2'] > 0:
             l2_W = tf.reduce_mean(tf.square(self.W))
@@ -73,35 +94,78 @@ class SRNN_Layer(object):
     def gradient(self, error, state):
         return tf.gradients(error, state[0])
 
+    def plot(self, session):
+
+        # get current values of weights and bias terms
+        Wnow,Rnow,bnow = session.run([self.W, self.R, self.b])
+
+        figsize = (5, 13)
+        plt.figure(figsize=figsize)
+        gs = plt.GridSpec(100, 1)
+
+        ax = plt.subplot(gs[:35, 0])
+        absmax = np.abs(Wnow).max()
+        plt.imshow(Wnow, interpolation='nearest', aspect='auto', vmin=-absmax, vmax=absmax, cmap=plt.cm.seismic)
+        plt.title('W')
+
+        ax = plt.subplot(gs[45:80, 0])
+        absmax = np.abs(Rnow).max()
+        plt.imshow(Rnow, interpolation='nearest', aspect='auto', vmin=-absmax, vmax=absmax, cmap=plt.cm.seismic)
+        plt.title('R')
+
+        ax = plt.subplot(gs[85:, 0])
+        absmax = np.abs(bnow).max()
+        plt.axhline(0, c='k')
+        plt.bar(range(self.n_unit), bnow.squeeze(), color='k', alpha=0.7)
+        plt.axis('tight')
+        plt.ylim(-absmax, absmax)
+        plt.title('b')
 
 class EI_Layer(object):
 
-    def __init__(self, n_input, n_unit, hparams):
+    def __init__(self, n_input, n_unit, hparams, input_weight_mask=None, input_sign=None):
         self.n_input = n_input
         self.n_unit = n_unit
+        self.hparams = hparams
 
         assert 'sign' in hparams, "Must supply 'sign' in hparams, a vector of length n_unit that has 1 for excitatory neurons, -1 for inhibitory neurons"
         self.sign = hparams['sign']
         assert len(self.sign) == self.n_unit, "Wrong size for hparams['sign'], must be of length %d" % n_unit
 
         M = np.ones([n_unit, n_unit])
-        if 'mask' in hparams:
-            M = hparams['mask']
+        if 'mask' in self.hparams:
+            M = self.hparams['mask']
         assert M.shape == (n_unit, n_unit)
 
         with tf.name_scope('ei_layer'):
-            self.M = tf.constant(M.astype('float32'), name='M')
-            self.D = tf.constant(np.diag(self.sign.astype('float32')), name='D')
-            self.gr = tf.Variable(tf.ones([1]), name='gr', trainable=True)
-            self.Jr = tf.Variable(init_weights_ei(n_unit, n_unit, hparams, scale=1000.), name='Jr', trainable=True)
+
+            self.Mr = tf.constant(M.astype('float32'), name='Mr')
+            self.Dr = tf.constant(np.diag(self.sign.astype('float32')), name='Dr')
+            self.Jr = tf.Variable(init_weights_ei(n_unit, n_unit, self.hparams, scale=1000.), name='Jr', trainable=True)
+
             self.b = tf.Variable(tf.zeros([1, n_unit]), name='b', trainable=True)
 
-            self.R = tf.matmul(self.D, tf.sigmoid(self.Jr)) * self.M * self.gr
+            self.R = tf.matmul(self.Dr, tf.nn.relu(self.Jr)) * self.Mr
 
-            self.W = tf.Variable(init_weights(n_input, n_unit, hparams), name='W', trainable=True)
+            # optionally mask the input weight matrix
+            Mw = np.ones([n_input, n_unit])
+            if input_weight_mask is not None:
+                assert Mw.shape == (n_input, n_unit)
+                Mw = input_weight_mask
+            self.Mw = tf.constant(Mw.astype('float32'), name='Mw')
 
-        if 'activation' in hparams:
-            assert hparams['activation'] in ['sigmoid', 'relu', 'elu']
+            # initialize the input weight matrix, with potential sign constraints
+            if input_sign is None:
+                self.Jw = tf.Variable(init_weights(n_input, n_unit, self.hparams), name='Jw', trainable=True)
+                self.W = self.Mw * self.Jw
+            else:
+                assert len(input_sign) == n_unit
+                self.Jw = tf.Variable(init_weights_ei(n_input, n_unit, self.hparams), name='Jw', trainable=True)
+                self.Dw = tf.constant(np.diag(input_sign).astype('float32'), name='Dw')
+                self.W = tf.matmul(self.Dw, tf.nn.relu(self.Jw)) * self.Mw
+
+        if 'activation' in self.hparams:
+            assert self.hparams['activation'] in ['sigmoid', 'relu', 'elu']
             self.activation = getattr(tf.nn, hparams['activation'])
         else:
             self.activation = tf.nn.relu
@@ -109,6 +173,12 @@ class EI_Layer(object):
     def get_new_states(self, n_state):
         new_h = tf.Variable(tf.zeros([n_state, self.n_unit]), trainable=False, name='h')
         return new_h,
+
+    def initial_state(self, n_batches):
+        h = np.random.randn(n_batches, self.n_unit)
+        h[h < 0] = 0
+        h *= 1e-1
+        return h
 
     def step(self, state, x, *d_state, **kwargs):
         """Updates returns the state updated by input x"""
@@ -122,6 +192,17 @@ class EI_Layer(object):
 
     def gradient(self, error, state):
         return tf.gradients(error, state[0])
+
+    def activity_cost(self, state):
+        return 0.
+
+    def weight_cost(self):
+        if 'lambda2' in self.hparams and self.hparams['lambda2'] > 0:
+            l2_W = tf.reduce_mean(tf.square(self.W))
+            l2_R = tf.reduce_mean(tf.square(self.R))
+            l2_b = tf.reduce_mean(tf.square(self.b))
+            return self.hparams['lambda2']*(l2_W + l2_R + l2_b)
+
 
 class EDSRNN_Layer(SRNN_Layer):
 
