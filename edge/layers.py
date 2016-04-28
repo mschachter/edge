@@ -67,6 +67,15 @@ class SRNN_Layer(object):
         return h,
 
     def activity_cost(self, state):
+        if 'activity_lambda' in self.hparams:
+            activity_deg = 2.
+            if 'activity_deg' in self.hparams:
+                activity_deg = self.hparams['activity_deg']
+            nonlin = tf.square
+            if activity_deg == 1:
+                nonlin = tf.abs
+            return tf.reduce_mean(nonlin(state))*self.hparams['activity_lambda']
+
         return 0.
 
     def get_saveable_params(self, session):
