@@ -10,8 +10,10 @@ layers:
     activation: 'tanh'
     n_unit: 5
     lambda2: 0.05
+    lambda1: 0.0
   -
     rnn_type: 'SRNN'
     activation: 'tanh'
     n_unit: 10
     lambda2: 0.05
+    lambda1: 0.0

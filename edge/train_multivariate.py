@@ -225,7 +225,8 @@ class MultivariateRNNTrainer(object):
 
                 if plot_layers_during_training:
                     for k,layer in enumerate(self.net.layers):
-                        layer.plot(session)
+                        layer_params = layer.get_saveable_params(session)
+                        layer.plot(layer_params)
                         plt.suptitle('Iter %d: Layer %d, type=%s' % (step, k, layer.hparams['rnn_type']))
                     plt.show()
 
@@ -318,8 +319,11 @@ class MultivariateRNNTrainer(object):
                 plt.title('cc=%0.2f' % ycc)
 
         if not text_only:
-            # plot the layers
-            pass
+            n_layers = len(self.trained_params)
+            for k in range(n_layers):
+                lkey = 'layer%d' % k
+                ldict = self.trained_params[lkey]
+                self.net.layers[k].plot(ldict)
 
     def save(self, output_file):
 
@@ -433,6 +437,7 @@ if __name__ == '__main__':
     print("Training network...")
     rnn_trainer.train(Utrain, Ytrain, Utest, Ytest, plot_layers_during_training=False)
     rnn_trainer.plot(Utest, Ytest, text_only=False)
+    plt.show()
 
     rnn_trainer.save('/tmp/rnn.h5')
 

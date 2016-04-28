@@ -94,19 +94,27 @@ class SRNN_Layer(object):
         return params
 
     def weight_cost(self):
+        total_cost = tf.constant(0.)
         if 'lambda2' in self.hparams and self.hparams['lambda2'] > 0:
             l2_W = tf.reduce_mean(tf.square(self.W))
             l2_R = tf.reduce_mean(tf.square(self.R))
             l2_b = tf.reduce_mean(tf.square(self.b))
-            return self.hparams['lambda2']*(l2_W + l2_R + l2_b)
+            total_cost += self.hparams['lambda2']*(l2_W + l2_R + l2_b)
+        if 'lambda1' in self.hparams and self.hparams['lambda1'] > 0:
+            l1_R = tf.reduce_mean(tf.abs(self.R))
+            total_cost += self.hparams['lambda1']*l1_R
+        return total_cost
 
     def gradient(self, error, state):
         return tf.gradients(error, state[0])
 
-    def plot(self, session):
+    @classmethod
+    def plot(clz, params=None):
 
         # get current values of weights and bias terms
-        Wnow,Rnow,bnow = session.run([self.W, self.R, self.b])
+        Wnow = params['W']
+        Rnow = params['R']
+        bnow = params['b']
 
         figsize = (5, 13)
         plt.figure(figsize=figsize)
@@ -125,7 +133,8 @@ class SRNN_Layer(object):
         ax = plt.subplot(gs[85:, 0])
         absmax = np.abs(bnow).max()
         plt.axhline(0, c='k')
-        plt.bar(range(self.n_unit), bnow.squeeze(), color='k', alpha=0.7)
+        n_unit = len(bnow.squeeze())
+        plt.bar(range(n_unit), bnow.squeeze(), color='k', alpha=0.7)
         plt.axis('tight')
         plt.ylim(-absmax, absmax)
         plt.title('b')
