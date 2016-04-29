@@ -176,9 +176,15 @@ class MultivariateRNNTrainer(object):
             tf.initialize_all_variables().run()
 
             # for each training iteration
+            converged = False
             epoch_errs = list()
             epoch_test_errs = list()
+            lowest_mean_err = np.inf
+
             for step in range(n_train_steps):
+
+                if converged:
+                    break
 
                 # print("step=%d, len(all_variables())=%d" % (step, len(tf.all_variables())))
 
@@ -206,6 +212,13 @@ class MultivariateRNNTrainer(object):
                 seg_errs = np.array(seg_errs)
                 epoch_errs.append(seg_errs)
 
+                mean_seg_err = seg_errs.mean()
+                if mean_seg_err < lowest_mean_err:
+                    lowest_mean_err = mean_seg_err
+                elif mean_seg_err > 1.03*lowest_mean_err:
+                    print("Stopping optimization after this iteration because training error has increased too much.")
+                    converged = True
+
                 test_err = np.nan
                 if test_check and ((step % test_check_interval == 0) or (step == n_train_steps-1)):
                     # average initial states across batches to get an initial state for the test set
@@ -221,7 +234,7 @@ class MultivariateRNNTrainer(object):
 
                 etime = time.time() - stime
                 print('iter=%d, eta=%0.6f, train_err=%0.6f +/- %0.6f, test_err=%0.6f, time=%0.3fs' % \
-                      (step, eta_val, seg_errs.mean(), seg_errs.std(ddof=1), test_err, etime))
+                      (step, eta_val, mean_seg_err, seg_errs.std(ddof=1), test_err, etime))
 
                 if plot_layers_during_training:
                     for k,layer in enumerate(self.net.layers):
