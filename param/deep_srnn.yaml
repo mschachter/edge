@@ -1,19 +1,13 @@
-t_mem: 20
+t_mem: 50
 t_mem_run: 50
 opt_algorithm: 'adam'
-n_train_steps: 20
-batch_size: 10
-eta0: 0.01
+n_train_steps: 10
+batch_size: 40
+eta0: 0.001
 layers:
   -
     rnn_type: 'SRNN'
-    activation: 'tanh'
-    n_unit: 5
-    lambda2: 0.05
-    lambda1: 0.0
-  -
-    rnn_type: 'SRNN'
-    activation: 'tanh'
-    n_unit: 10
-    lambda2: 0.05
-    lambda1: 0.0
+    activation: 'relu'
+    n_unit: 500
+    lambda2: 0.01
+    lambda1: 0.01

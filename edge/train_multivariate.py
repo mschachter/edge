@@ -36,6 +36,8 @@ class MultivariateRNNTrainer(object):
         self.test_preds = None
 
         self.trained_params = None
+        self.lowest_err = None
+        self.train_time = None
 
         self.build()
 
@@ -153,6 +155,7 @@ class MultivariateRNNTrainer(object):
 
     def train(self, Utrain, Ytrain, Utest, Ytest, test_check_interval=5, plot_layers_during_training=False):
 
+        start_time = time.time()
         n_train_steps = self.hparams['n_train_steps']
         
         n_batches,n_segs_per_batch,t_mem,n_in = Utrain.shape
@@ -213,6 +216,9 @@ class MultivariateRNNTrainer(object):
                 epoch_errs.append(seg_errs)
 
                 mean_seg_err = seg_errs.mean()
+                if np.isinf(mean_seg_err) or np.isnan(mean_seg_err):
+                    print("Something blew up, stopping optimization after this iteration.")
+                    converged = True
                 if mean_seg_err < lowest_mean_err:
                     lowest_mean_err = mean_seg_err
                 elif mean_seg_err > 1.02*lowest_mean_err:
@@ -245,11 +251,14 @@ class MultivariateRNNTrainer(object):
 
             self.epoch_errs = np.array(epoch_errs)
             self.epoch_test_errs = np.array(epoch_test_errs)
+            self.lowest_err = lowest_mean_err
 
             self.trained_params = dict()
             for k,layer in enumerate(self.net.layers):
                 ldict = layer.get_saveable_params(session)
                 self.trained_params['layer%d' % k] = ldict
+
+            self.train_time = time.time() - start_time
 
     def run_network(self, U, h0, session):
         n_segs,t_mem_run,n_in = U.shape
@@ -349,6 +358,8 @@ class MultivariateRNNTrainer(object):
 
         hf['epoch_test_errs'] = self.epoch_test_errs
         hf['epoch_errs'] = self.epoch_errs
+        hf.attrs['lowest_err'] = self.lowest_err
+        hf.attrs['train_time'] = self.train_time
         hf['test_preds'] = self.test_preds
 
         for lkey,ldict in self.trained_params.items():
