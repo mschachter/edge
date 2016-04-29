@@ -43,8 +43,11 @@ class SRNN_Layer(object):
             self.b = tf.Variable(tf.zeros([1, n_unit]), name = 'b')
 
         if 'activation' in hparams:
-            assert hparams['activation'] in ['sigmoid', 'tanh', 'relu', 'elu']
-            self.activation = getattr(tf.nn, hparams['activation'])
+            assert hparams['activation'] in ['sigmoid', 'tanh', 'relu', 'elu', 'linear']
+            if hparams['activation'] == 'linear':
+                self.activation = lambda x: x
+            else:
+                self.activation = getattr(tf.nn, hparams['activation'])
         else:
             self.activation = tf.nn.tanh
 
