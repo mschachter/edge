@@ -215,7 +215,7 @@ class MultivariateRNNTrainer(object):
                 mean_seg_err = seg_errs.mean()
                 if mean_seg_err < lowest_mean_err:
                     lowest_mean_err = mean_seg_err
-                elif mean_seg_err > 1.03*lowest_mean_err:
+                elif mean_seg_err > 1.02*lowest_mean_err:
                     print("Stopping optimization after this iteration because training error has increased too much.")
                     converged = True
 
