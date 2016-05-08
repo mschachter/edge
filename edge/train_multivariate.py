@@ -370,11 +370,12 @@ class MultivariateRNNTrainer(object):
         hf.close()
 
 
-def read_config(config_file, n_in, n_out):
+def read_config(config_file, n_in, n_out, override_params=dict()):
 
     with open(config_file) as config_f:
         net_params = yaml.load(config_f.read())
 
+    print("overrde_params=" + str(override_params))
     hparams = dict()
     hparams['n_in'] = n_in
     hparams['n_out'] = n_out
@@ -389,6 +390,11 @@ def read_config(config_file, n_in, n_out):
                     layer_n_in = layers[k-1]['n_unit']
 
                 ldict['n_in'] = layer_n_in
+                for lkey in ldict.keys():
+                    if lkey in override_params and lkey in ['activation', 'n_unit', 'lambda1', 'lambda2', 'space_const', 'num_e', 'ei_ratio']:
+                        print("overriding param %s with %s" % (lkey, override_params[lkey]))
+                        ldict[lkey] = override_params[lkey]
+
                 if ldict['rnn_type'] == 'EI':
                     layers.append(EI_LayerHelper.parse_config(ldict, layer_n_in))
                 else:
@@ -397,6 +403,8 @@ def read_config(config_file, n_in, n_out):
             hparams['layers'] = layers
         else:
             hparams[key] = val
+            if key in override_params and key in ['opt_algorithm', 'eta0']:
+                hparams[key] = override_params[key]
 
     return hparams
 
@@ -445,7 +453,7 @@ if __name__ == '__main__':
     print("Utest.shape=" + str(Utest.shape))
     print("Ytest.shape=" + str(Ytest.shape))
 
-    hparams = read_config('param/deep_ei.yaml', n_in, n_out)
+    hparams = read_config('param/deep_ei.yaml', n_in, n_out, override_params={'ei_ratio':0.50})
 
     print('')
     print('------ Network Params ------')
