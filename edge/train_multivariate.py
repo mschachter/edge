@@ -400,6 +400,7 @@ def read_config(config_file, n_in, n_out):
 
     return hparams
 
+
 if __name__ == '__main__':
 
     np.random.seed(123456)
@@ -444,7 +445,7 @@ if __name__ == '__main__':
     print("Utest.shape=" + str(Utest.shape))
     print("Ytest.shape=" + str(Ytest.shape))
 
-    hparams = read_config('param/deep_srnn.yaml', n_in, n_out)
+    hparams = read_config('param/deep_ei.yaml', n_in, n_out)
 
     print('')
     print('------ Network Params ------')

@@ -10,12 +10,6 @@ def init_weights(n_input, n_unit, hparams, scale=1.):
     std = scale*(tf.sqrt(2.0) / tf.sqrt(tf.cast(n_input + n_unit, tf.float32)))
     return tf.truncated_normal([n_input, n_unit], 0.0, std)
 
-def init_weights_ei(n_input, n_unit, hparams, scale=1.):
-    # A sigmoid is applied to the weights generated here. To keep the network from blowing up,
-    # we need the weights to be negative, so the output of the sigmoid is close to zero.
-    std = scale*(tf.sqrt(2.0) / tf.sqrt(tf.cast(n_input + n_unit, tf.float32)))
-    return -tf.abs(tf.truncated_normal([n_input, n_unit], 0.0, std))
-
 
 class Linear_Layer(object):
     def __init__(self, n_input, n_output, hparams):
@@ -142,6 +136,7 @@ class SRNN_Layer(object):
         plt.ylim(-absmax, absmax)
         plt.title('b')
 
+
 class EI_Layer(object):
 
     def __init__(self, n_input, n_unit, hparams, input_weight_mask=None, input_sign=None):
@@ -162,11 +157,12 @@ class EI_Layer(object):
 
             self.Mr = tf.constant(M.astype('float32'), name='Mr')
             self.Dr = tf.constant(np.diag(self.sign.astype('float32')), name='Dr')
-            self.Jr = tf.Variable(init_weights_ei(n_unit, n_unit, self.hparams, scale=1000.), name='Jr', trainable=True)
+            self.Jr = tf.Variable(init_weights(n_unit, n_unit, self.hparams), name='Jr', trainable=True)
 
             self.b = tf.Variable(tf.zeros([1, n_unit]), name='b', trainable=True)
 
             self.R = tf.matmul(self.Dr, tf.nn.relu(self.Jr)) * self.Mr
+            # self.R.name = 'R'
 
             # optionally mask the input weight matrix
             Mw = np.ones([n_input, n_unit])
@@ -181,7 +177,7 @@ class EI_Layer(object):
                 self.W = self.Mw * self.Jw
             else:
                 assert len(input_sign) == n_unit
-                self.Jw = tf.Variable(init_weights_ei(n_input, n_unit, self.hparams), name='Jw', trainable=True)
+                self.Jw = tf.Variable(init_weights(n_input, n_unit, self.hparams), name='Jw', trainable=True)
                 self.Dw = tf.constant(np.diag(input_sign).astype('float32'), name='Dw')
                 self.W = tf.matmul(self.Dw, tf.nn.relu(self.Jw)) * self.Mw
 
@@ -215,15 +211,89 @@ class EI_Layer(object):
         return tf.gradients(error, state[0])
 
     def activity_cost(self, state):
+        if 'activity_lambda' in self.hparams:
+            activity_deg = 2.
+            if 'activity_deg' in self.hparams:
+                activity_deg = self.hparams['activity_deg']
+            nonlin = tf.square
+            if activity_deg == 1:
+                nonlin = tf.abs
+            return tf.reduce_mean(nonlin(state)) * self.hparams['activity_lambda']
+
         return 0.
 
     def weight_cost(self):
+        total_cost = tf.constant(0.)
         if 'lambda2' in self.hparams and self.hparams['lambda2'] > 0:
-            l2_W = tf.reduce_mean(tf.square(self.W))
-            l2_R = tf.reduce_mean(tf.square(self.R))
+            l2_W = tf.reduce_mean(tf.square(self.Jw))
+            l2_R = tf.reduce_mean(tf.square(self.Jr))
             l2_b = tf.reduce_mean(tf.square(self.b))
-            return self.hparams['lambda2']*(l2_W + l2_R + l2_b)
+            total_cost += self.hparams['lambda2'] * (l2_W + l2_R + l2_b)
+        if 'lambda1' in self.hparams and self.hparams['lambda1'] > 0:
+            l1_R = tf.reduce_mean(tf.abs(self.Jw))
+            total_cost += self.hparams['lambda1'] * l1_R
+        return total_cost
 
+    def get_saveable_params(self, session):
+        to_compute = [self.W, self.R, self.b, self.Jw, self.Jr]
+        val_names = ['W', 'R', 'b', 'Jw', 'Jr']
+        vals = session.run(to_compute)
+
+        params = dict()
+        for k, t in enumerate(to_compute):
+            params[val_names[k]] = vals[k]
+
+        for k, v in self.hparams.items():
+            if np.isscalar(v) or isinstance(v, str):
+                params[k] = v
+
+        return params
+
+    def plot(clz, params=None):
+
+        # get current values of weights and bias terms
+        Jw = params['Jw']
+        W = params['W']
+        Jr = params['Jr']
+        R = params['R']
+        b = params['b']
+
+        figsize = (15, 13)
+        plt.figure(figsize=figsize)
+        gs = plt.GridSpec(100, 2)
+
+        ax = plt.subplot(gs[:35, 0])
+        absmax = np.abs(Jw).max()
+        plt.imshow(Jw, interpolation='nearest', aspect='auto', vmin=-absmax, vmax=absmax, cmap=plt.cm.seismic)
+        plt.title('Jw')
+        plt.colorbar()
+
+        ax = plt.subplot(gs[:35, 1])
+        absmax = np.abs(W).max()
+        plt.imshow(W, interpolation='nearest', aspect='auto', vmin=-absmax, vmax=absmax, cmap=plt.cm.seismic)
+        plt.title('W')
+        plt.colorbar()
+
+        ax = plt.subplot(gs[45:80, 0])
+        absmax = np.abs(Jr).max()
+        plt.imshow(Jr, interpolation='nearest', aspect='auto', vmin=-absmax, vmax=absmax, cmap=plt.cm.seismic)
+        plt.title('Jr')
+        plt.colorbar()
+
+        ax = plt.subplot(gs[45:80, 1])
+        absmax = np.abs(R).max()
+        plt.imshow(R, interpolation='nearest', aspect='auto', vmin=-absmax, vmax=absmax, cmap=plt.cm.seismic)
+        plt.title('R')
+        plt.colorbar()
+
+        ax = plt.subplot(gs[85:, 0])
+        absmax = np.abs(b).max()
+        plt.axhline(0, c='k')
+        n_unit = len(b.squeeze())
+        plt.bar(range(n_unit), b.squeeze(), color='k', alpha=0.7)
+        plt.axis('tight')
+        plt.ylim(-absmax, absmax)
+        plt.title('b')
 
 class EDSRNN_Layer(SRNN_Layer):
 
