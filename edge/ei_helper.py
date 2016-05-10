@@ -190,9 +190,9 @@ class EI_LayerHelper(object):
     def parse_config(cls, ldict, n_in, plot=False):
         ei_helper = EI_LayerHelper()
 
-        num_e = ldict['num_e']
+        n_tot = ldict['n_unit']
         ei_ratio = ldict['ei_ratio']
-        n_tot = int(num_e / ei_ratio)
+        num_e = int((ei_ratio*n_tot) / (1 + ei_ratio))
         num_i = n_tot - num_e
 
         w = ldict['width'] / 2.
@@ -207,21 +207,13 @@ class EI_LayerHelper(object):
         params['rnn_type'] = 'EI'
 
         params['n_in'] = n_in
-        params['n_unit'] = num_e + num_i
+        params['n_unit'] = n_tot
         params['activation'] = ldict['activation']
+        params['lambda1'] = ldict['lambda1']
         params['lambda2'] = ldict['lambda2']
 
         params['sign'] = ei_helper.S[:, 0]
         params['mask'] = get_distance_mask(ei_helper.D, ldict['space_const'])
-        params['b0'] = ei_helper.b0
-
-        if 'activity_deg' in ldict and ldict['activity_deg'] > 0:
-            print('n_tot=' + str(n_tot))
-            print('activity_lambda=' + str(ldict['activity_lambda']))
-            acost = np.ones([n_tot])*ldict['activity_lambda']
-            acost[num_e:] = 0.
-            params['activity_cost'] = acost
-            params['activity_deg'] = ldict['activity_deg']
 
         params['helper'] = ei_helper
 

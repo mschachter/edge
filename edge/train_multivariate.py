@@ -391,7 +391,7 @@ def read_config(config_file, n_in, n_out, override_params=dict()):
 
                 ldict['n_in'] = layer_n_in
                 for lkey in ldict.keys():
-                    if lkey in override_params and lkey in ['activation', 'n_unit', 'lambda1', 'lambda2', 'space_const', 'num_e', 'ei_ratio']:
+                    if lkey in override_params and lkey in ['activation', 'n_unit', 'lambda1', 'lambda2', 'space_const', 'ei_ratio']:
                         print("overriding param %s with %s" % (lkey, override_params[lkey]))
                         ldict[lkey] = override_params[lkey]
 
@@ -453,7 +453,7 @@ if __name__ == '__main__':
     print("Utest.shape=" + str(Utest.shape))
     print("Ytest.shape=" + str(Ytest.shape))
 
-    hparams = read_config('param/deep_ei.yaml', n_in, n_out, override_params={'ei_ratio':0.50})
+    hparams = read_config('param/deep_ei.yaml', n_in, n_out, override_params={'ei_ratio':0.3})
 
     print('')
     print('------ Network Params ------')

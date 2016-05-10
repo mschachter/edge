@@ -9,8 +9,8 @@ layers:
     rnn_type: 'EI'
     width: 2
     height: 1
-    num_e: 100
-    ei_ratio: 0.75
+    n_unit: 100
+    ei_ratio: 3.0
     lambda1: 0.01
     lambda2: 0.01
     activation: 'relu'
