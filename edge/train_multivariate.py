@@ -257,6 +257,7 @@ class MultivariateRNNTrainer(object):
             for k,layer in enumerate(self.net.layers):
                 ldict = layer.get_saveable_params(session)
                 self.trained_params['layer%d' % k] = ldict
+            self.trained_params['output_layer'] = self.net.output_layer.get_saveable_params(session)
 
             self.train_time = time.time() - start_time
 
@@ -341,7 +342,7 @@ class MultivariateRNNTrainer(object):
                 plt.title('cc=%0.2f' % ycc)
 
         if not text_only:
-            n_layers = len(self.trained_params)
+            n_layers = len([k for k in self.trained_params.keys() if k.startswith('layer')])
             for k in range(n_layers):
                 lkey = 'layer%d' % k
                 ldict = self.trained_params[lkey]

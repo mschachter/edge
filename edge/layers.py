@@ -19,9 +19,66 @@ class Linear_Layer(object):
         self.W = tf.Variable(init_weights(n_input, n_output, hparams), name= 'W')
         self.b = tf.Variable(tf.zeros([n_output]), name = 'b')
 
+        self.hparams = hparams
+
     def output(self, x):
         v = tf.nn.xw_plus_b(x, self.W, self.b)
         return v
+
+    def get_saveable_params(self, session):
+        cnames = ['W', 'b', ]
+        to_compute = [self.W, self.b]
+        cvals = session.run(to_compute)
+        return {k: v for k, v in zip(cnames, cvals)}
+
+    def weight_cost(self):
+        if 'output_lambda2' in self.hparams and self.hparams['output_lambda2'] > 0:
+            l2_W = tf.reduce_mean(tf.square(self.W))
+            l2_b = tf.reduce_mean(tf.square(self.b))
+            return self.hparams['output_lambda2']*(l2_W + l2_b)
+
+
+class FeedforwardLayer(object):
+
+    def __init__(self, n_input, n_output, hparams):
+
+        self.hparams = hparams
+
+        self.n_input = n_input
+        self.n_output = n_output
+        self.n_hidden = hparams['output_n_hidden']
+
+        assert hparams['output_activation'] in ['sigmoid', 'tanh', 'relu', 'elu', 'linear']
+        if hparams['output_activation'] == 'linear':
+            self.activation = lambda x: x
+        else:
+            self.activation = getattr(tf.nn, hparams['output_activation'])
+
+        self.W_in = tf.Variable(init_weights(self.n_input, self.n_hidden, hparams), name='Win')
+        self.b_in = tf.Variable(tf.zeros([self.n_hidden]), name='bin')
+
+        self.W = tf.Variable(init_weights(self.n_hidden, self.n_output, hparams), name='W')
+        self.b = tf.Variable(tf.zeros([self.n_output]), name='b')
+
+    def output(self, x):
+        u = self.activation(tf.matmul(x, self.W_in) + self.b_in)
+        return tf.matmul(u, self.W) + self.b
+
+    def get_saveable_params(self, session):
+        cnames = ['W', 'W_in', 'b', 'b_in']
+        to_compute = [self.W, self.W_in, self.b, self.b_in]
+        cvals = session.run(to_compute)
+
+        return {k:v for k,v in zip(cnames, cvals)}
+
+    def weight_cost(self):
+        if 'output_lambda2' in self.hparams and self.hparams['output_lambda2'] > 0:
+            l2_W = tf.reduce_mean(tf.square(self.W))
+            l2_b = tf.reduce_mean(tf.square(self.b))
+            l2_W_in = tf.reduce_mean(tf.square(self.W_in))
+            l2_b_in = tf.reduce_mean(tf.square(self.b_in))
+            return self.hparams['output_lambda2'] * (l2_W + l2_b + l2_W_in + l2_b_in)
+        return 0.
 
 
 class SRNN_Layer(object):

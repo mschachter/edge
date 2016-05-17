@@ -158,7 +158,16 @@ class Deep_Recurrent_Network():
 
         # construct the output layer
         with tf.name_scope('output_layer') as scope:
-            self.output_layer = layers.Linear_Layer(n_total_units, hparams['n_out'], hparams)
+            if 'output_layer' not in hparams:
+                hparams['output_layer'] = 'linear'
+
+            assert hparams['output_layer'] in ['linear', 'nn'], "output_layer must be either 'linear' or 'nn'"
+            if hparams['output_layer'] == 'linear':
+                self.output_layer = layers.Linear_Layer(n_total_units, hparams['n_out'], hparams)
+            else:
+                assert 'output_n_hidden' in hparams, "Must specify # of hidden neurons with param output_n_hidden for output_layer=nn"
+                assert 'output_activation' in hparams, "Must specify the activation function for the hidden layer of the output with param output_activation"
+                self.output_layer = layers.FeedforwardLayer(n_total_units, hparams['n_out'], hparams)
 
     def step(self, state, x_input):
         """
@@ -191,6 +200,7 @@ class Deep_Recurrent_Network():
 
     def weight_cost(self):
         wcost_list = [layer.weight_cost() for layer in self.layers]
+        wcost_list.append(self.output_layer.weight_cost())
         wcost_list = tf.concat(0, [tf.expand_dims(wc, 0) for wc in wcost_list])
         return tf.reduce_mean(wcost_list)
 
