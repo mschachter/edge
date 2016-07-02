@@ -280,6 +280,8 @@ class MultivariateRNNTrainer(object):
                 fdict[state_placeholder] = h[k]
             compute_vals = session.run(to_compute, feed_dict=fdict)
             ypred = np.array(compute_vals[:npreds]).squeeze()
+            if len(ypred.shape) == 1:
+                ypred = ypred.reshape([len(ypred), 1])
             h = compute_vals[npreds:]
             Yhat[si:ei, :] = ypred
 

@@ -36,6 +36,8 @@ class Linear_Layer(object):
             l2_W = tf.reduce_mean(tf.square(self.W))
             l2_b = tf.reduce_mean(tf.square(self.b))
             return self.hparams['output_lambda2']*(l2_W + l2_b)
+        else:
+            return 0.0
 
 
 class FeedforwardLayer(object):
