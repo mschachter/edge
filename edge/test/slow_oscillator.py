@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from edge.train_multivariate import read_config, MultivariateRNNTrainer
 
 
-def make_training_data(nbatches=10, nsegs_per_batch=200, t_mem=50, sample_rate=1e3, freq=1.,
+def make_training_data(nbatches=10, nsegs_per_batch=200, t_mem=50, sample_rate=1e3, freq=20.,
                        input_noise_std=1., output_noise_std=1e-2):
 
     nt = nsegs_per_batch*t_mem
@@ -38,7 +38,7 @@ def train_network():
 
     n_in = 1
     n_out = 1
-    hparams = read_config('param/deep_ei.yaml', n_in, n_out, override_params={'ei_ratio':0.3})
+    hparams = read_config('param/deep_srnn.yaml', n_in, n_out, override_params={})
 
     print('')
     print('------ Network Params ------')

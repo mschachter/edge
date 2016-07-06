@@ -15,9 +15,9 @@ layers:
     height: 1
     n_unit: 100
     ei_ratio: 3.0
-    lambda1: 0.01
-    lambda2: 0.01
-    activation: 'relu'
+    lambda1: 0.0
+    lambda2: 0.0
+    activation: 'sigmoid'
     activity_deg: 2
     activity_lambda: 0
-    space_const: 0.350
+    space_const: 0.500
