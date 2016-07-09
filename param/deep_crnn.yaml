@@ -1,0 +1,12 @@
+t_mem: 50
+t_mem_run: 50
+opt_algorithm: 'adam'
+n_train_steps: 5
+batch_size: 10
+eta0: 0.001
+output_layer: 'complex'
+layers:
+  -
+    rnn_type: 'CRNN'
+    n_unit: 100
+    activation: 'linear'

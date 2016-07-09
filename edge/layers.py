@@ -11,6 +11,15 @@ def init_weights(n_input, n_unit, hparams, scale=1.):
     return tf.truncated_normal([n_input, n_unit], 0.0, std)
 
 
+def init_complex_weights(n_input, n_unit, hparams):
+
+    std = tf.sqrt(2.0) / tf.sqrt(tf.cast(n_input + n_unit, tf.float32))
+    X = tf.truncated_normal([n_input, n_unit], 0.0, std)
+    Y = tf.truncated_normal([n_input, n_unit], 0.0, std)
+
+    return tf.complex(X, Y)
+
+
 class Linear_Layer(object):
     def __init__(self, n_input, n_output, hparams):
         self.n_input = n_input
@@ -38,6 +47,30 @@ class Linear_Layer(object):
             return self.hparams['output_lambda2']*(l2_W + l2_b)
         else:
             return 0.0
+
+
+class ComplexOutput_Layer(object):
+    def __init__(self, n_input, n_output, hparams):
+        self.n_input = n_input
+        self.n_unit = n_output
+
+        self.W = tf.Variable(init_complex_weights(n_input, n_output, hparams), name= 'W')
+        self.b = tf.Variable(tf.complex(tf.zeros([n_output]), tf.zeros([n_output])), name = 'b')
+
+        self.hparams = hparams
+
+    def output(self, x):
+        v = tf.nn.xw_plus_b(x, self.W, self.b)
+        return tf.real(v)
+
+    def get_saveable_params(self, session):
+        cnames = ['W', 'b', ]
+        to_compute = [self.W, self.b]
+        cvals = session.run(to_compute)
+        return {k: v for k, v in zip(cnames, cvals)}
+
+    def weight_cost(self):
+        return 0.0
 
 
 class FeedforwardLayer(object):
@@ -355,7 +388,7 @@ class EI_Layer(object):
         plt.title('b')
 
 
-class LinearComplex_Layer(object):
+class ComplexLinear_layer(object):
 
     def __init__(self, n_input, n_unit, hparams):
         self.n_input = n_input
@@ -363,9 +396,9 @@ class LinearComplex_Layer(object):
         self.hparams = hparams
 
         with tf.name_scope('complex_layer'):
-            self.W = tf.Variable(init_weights(n_input, n_unit, hparams), name='W')
-            self.R = tf.Variable(init_weights(n_unit, n_unit, hparams), name='R')
-            self.b = tf.Variable(tf.zeros([1, n_unit]), name='b')
+            self.W = tf.Variable(init_complex_weights(n_input, n_unit, hparams), name='W')
+            self.R = tf.Variable(init_complex_weights(n_unit, n_unit, hparams), name='R')
+            self.b = tf.Variable(tf.complex(np.zeros([1, n_unit]), np.zeros([1, n_unit])), name='b')
 
     def get_new_states(self, n_state):
         new_h = tf.Variable(tf.zeros([n_state, self.n_unit]), trainable=False, name='h')
@@ -381,9 +414,8 @@ class LinearComplex_Layer(object):
         R = self.R
         xxx = tf.matmul(x, W)
         hhh = tf.matmul(h, R)
-        h = self.activation(xxx + hhh + self.b)
 
-        return h,
+        return hhh + xxx,
 
     def activity_cost(self, state):
         return 0.
@@ -422,22 +454,20 @@ class LinearComplex_Layer(object):
         gs = plt.GridSpec(100, 1)
 
         ax = plt.subplot(gs[:35, 0])
-        absmax = np.abs(Wnow).max()
-        plt.imshow(Wnow, interpolation='nearest', aspect='auto', vmin=-absmax, vmax=absmax, cmap=plt.cm.seismic)
+        ax.set_axis_background('black')
+        plt.imshow(np.abs(Wnow), interpolation='nearest', aspect='auto', cmap=plt.cm.afmhot)
         plt.title('W')
 
         ax = plt.subplot(gs[45:80, 0])
-        absmax = np.abs(Rnow).max()
-        plt.imshow(Rnow, interpolation='nearest', aspect='auto', vmin=-absmax, vmax=absmax, cmap=plt.cm.seismic)
+        ax.set_axis_background('black')
+        plt.imshow(np.abs(Rnow), interpolation='nearest', aspect='auto', cmap=plt.cm.afmhot)
         plt.title('R')
 
         ax = plt.subplot(gs[85:, 0])
-        absmax = np.abs(bnow).max()
         plt.axhline(0, c='k')
         n_unit = len(bnow.squeeze())
-        plt.bar(range(n_unit), bnow.squeeze(), color='k', alpha=0.7)
+        plt.bar(range(n_unit), np.abs(bnow).squeeze(), color='k', alpha=0.7)
         plt.axis('tight')
-        plt.ylim(-absmax, absmax)
         plt.title('b')
 
 

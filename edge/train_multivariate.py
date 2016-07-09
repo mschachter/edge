@@ -456,7 +456,8 @@ if __name__ == '__main__':
     print("Utest.shape=" + str(Utest.shape))
     print("Ytest.shape=" + str(Ytest.shape))
 
-    hparams = read_config('param/deep_ei.yaml', n_in, n_out, override_params={'ei_ratio':0.3})
+    # hparams = read_config('param/deep_ei.yaml', n_in, n_out, override_params={'ei_ratio':0.3})
+    hparams = read_config('param/deep_crnn.yaml', n_in, n_out)
 
     print('')
     print('------ Network Params ------')
