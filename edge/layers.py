@@ -354,6 +354,94 @@ class EI_Layer(object):
         plt.ylim(-absmax, absmax)
         plt.title('b')
 
+
+class LinearComplex_Layer(object):
+
+    def __init__(self, n_input, n_unit, hparams):
+        self.n_input = n_input
+        self.n_unit = n_unit
+        self.hparams = hparams
+
+        with tf.name_scope('complex_layer'):
+            self.W = tf.Variable(init_weights(n_input, n_unit, hparams), name='W')
+            self.R = tf.Variable(init_weights(n_unit, n_unit, hparams), name='R')
+            self.b = tf.Variable(tf.zeros([1, n_unit]), name='b')
+
+    def get_new_states(self, n_state):
+        new_h = tf.Variable(tf.zeros([n_state, self.n_unit]), trainable=False, name='h')
+        return new_h,
+
+    def initial_state(self, n_batches):
+        return np.random.randn(n_batches, self.n_unit)
+
+    def step(self, state, x, *d_state, **kwargs):
+        """Updates returns the state updated by input x"""
+        h = state[0]
+        W = self.W
+        R = self.R
+        xxx = tf.matmul(x, W)
+        hhh = tf.matmul(h, R)
+        h = self.activation(xxx + hhh + self.b)
+
+        return h,
+
+    def activity_cost(self, state):
+        return 0.
+
+    def get_saveable_params(self, session):
+        to_compute = [self.W, self.R, self.b]
+        vals = session.run(to_compute)
+        params = dict()
+        for k, t in enumerate(to_compute):
+            tname = t.name.split(':')[0]
+            tname = tname.split('/')[-1]
+            params[tname] = vals[k]
+
+        for k, v in self.hparams.items():
+            if np.isscalar(v) or isinstance(v, str):
+                params[k] = v
+
+        return params
+
+    def weight_cost(self):
+        return 0.
+
+    def gradient(self, error, state):
+        return tf.gradients(error, state[0])
+
+    @classmethod
+    def plot(clz, params=None):
+
+        # get current values of weights and bias terms
+        Wnow = params['W']
+        Rnow = params['R']
+        bnow = params['b']
+
+        figsize = (5, 13)
+        plt.figure(figsize=figsize)
+        gs = plt.GridSpec(100, 1)
+
+        ax = plt.subplot(gs[:35, 0])
+        absmax = np.abs(Wnow).max()
+        plt.imshow(Wnow, interpolation='nearest', aspect='auto', vmin=-absmax, vmax=absmax, cmap=plt.cm.seismic)
+        plt.title('W')
+
+        ax = plt.subplot(gs[45:80, 0])
+        absmax = np.abs(Rnow).max()
+        plt.imshow(Rnow, interpolation='nearest', aspect='auto', vmin=-absmax, vmax=absmax, cmap=plt.cm.seismic)
+        plt.title('R')
+
+        ax = plt.subplot(gs[85:, 0])
+        absmax = np.abs(bnow).max()
+        plt.axhline(0, c='k')
+        n_unit = len(bnow.squeeze())
+        plt.bar(range(n_unit), bnow.squeeze(), color='k', alpha=0.7)
+        plt.axis('tight')
+        plt.ylim(-absmax, absmax)
+        plt.title('b')
+
+
+
 class EDSRNN_Layer(SRNN_Layer):
 
     def __init__(self, n_input, n_unit, hparams):
