@@ -87,9 +87,14 @@ class MultivariateRNNTrainer(object):
     def create_batch_train_op(self):
 
         batch_size = self.hparams['batch_size']
+        is_complex = self.hparams['output_layer'] == 'complex'
+
+        placeholder_dtype = tf.float32
+        if is_complex:
+            placeholder_dtype = tf.complex64
 
         # the input placeholder, contains the entire multivariate input time series for a batch
-        U = tf.placeholder(tf.float32, shape=[batch_size, self.hparams['t_mem'], self.hparams['n_in']])
+        U = tf.placeholder(placeholder_dtype, shape=[batch_size, self.hparams['t_mem'], self.hparams['n_in']])
 
         # the output placeholder, contains the desired multivariate output time series for a batch
         Y = tf.placeholder(tf.float32, shape=[batch_size, self.hparams['t_mem'], self.hparams['n_out']])
@@ -97,7 +102,7 @@ class MultivariateRNNTrainer(object):
         # create placeholders for the initial state, one placeholder for each layer
         state_placeholders = list()
         for layer in self.net.layers:
-            state_placeholders.append(tf.placeholder(tf.float32, shape=[batch_size, layer.n_unit]))
+            state_placeholders.append(tf.placeholder(placeholder_dtype, shape=[batch_size, layer.n_unit]))
 
         next_state = state_placeholders
         weight_cost = self.net.weight_cost()
@@ -130,13 +135,20 @@ class MultivariateRNNTrainer(object):
         return {'U':U, 'Y':Y, 'state':state_placeholders, 'batch_err':batch_err, 'next_state':next_state}
 
     def create_run_op(self):
+
+        is_complex = self.hparams['output_layer'] == 'complex'
+
+        placeholder_dtype = tf.float32
+        if is_complex:
+            placeholder_dtype = tf.complex64
+
         # the input placeholder, contains the entire multivariate input time series for a batch
-        U = tf.placeholder(tf.float32, shape=[self.hparams['t_mem_run'], self.hparams['n_in']])
+        U = tf.placeholder(placeholder_dtype, shape=[self.hparams['t_mem_run'], self.hparams['n_in']])
 
         # create placeholders for the initial state, one placeholder for each layer
         state_placeholders = list()
         for layer in self.net.layers:
-            state_placeholders.append(tf.placeholder(tf.float32, shape=[1, layer.n_unit]))
+            state_placeholders.append(tf.placeholder(placeholder_dtype, shape=[1, layer.n_unit]))
 
         next_state = state_placeholders
 
@@ -421,6 +433,9 @@ if __name__ == '__main__':
     n_out = 3
     t_in = 10000
 
+    # hparams = read_config('param/deep_ei.yaml', n_in, n_out, override_params={'ei_ratio':0.3})
+    hparams = read_config('param/deep_crnn.yaml', n_in, n_out)
+
     # the "memory" of the network, how many time steps BPTT is run for
     t_mem = 20
 
@@ -429,7 +444,8 @@ if __name__ == '__main__':
     n_samps = int(t_in / t_mem)
 
     # create some fake data for training
-    Utrain, Xtrain, Ytrain, sample_params = create_sample_data(n_in, n_hid_data, n_out, t_in, n_samps, segment_U=True)
+    Utrain, Xtrain, Ytrain, sample_params = create_sample_data(n_in, n_hid_data, n_out, t_in, n_samps,
+                                                               segment_U=True, complex=hparams['output_layer'] == 'complex')
 
     # segment the training data into parallel batches, each batch is a continuous temporal segment of data
     # broken down into segments of length t_mem
@@ -451,13 +467,11 @@ if __name__ == '__main__':
                                                           W=sample_params['W'],
                                                           b=sample_params['b'],
                                                           Wout=sample_params['Wout'],
-                                                          bout=sample_params['bout'])
+                                                          bout=sample_params['bout'],
+                                                          complex=hparams['output_layer'] == 'complex')
 
     print("Utest.shape=" + str(Utest.shape))
     print("Ytest.shape=" + str(Ytest.shape))
-
-    # hparams = read_config('param/deep_ei.yaml', n_in, n_out, override_params={'ei_ratio':0.3})
-    hparams = read_config('param/deep_crnn.yaml', n_in, n_out)
 
     print('')
     print('------ Network Params ------')

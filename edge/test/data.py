@@ -21,7 +21,8 @@ def rescale_matrix(W, spectral_radius=1.0):
 
 def create_sample_data(ninputs, nhidden, nout, nt, nsamples,
                        segment_U=False, zscore_y=True,
-                       Win=None, W=None, b=None, Wout=None, bout=None, x0=None):
+                       Win=None, W=None, b=None, Wout=None, bout=None, x0=None,
+                       complex=False):
 
     np.random.seed(123456)
 
@@ -82,6 +83,9 @@ def create_sample_data(ninputs, nhidden, nout, nt, nsamples,
         Us = U
         Xs,Ys = run_network(U, Win, W, b, Wout, bout, x0)
         Xs = Xs[1:, :]
+
+    if complex:
+        Us = Us.astype('complex64')
 
     params = {'Win':Win, 'W':W, 'b':b, 'Wout':Wout, 'bout':bout, 'x0':x0}
 

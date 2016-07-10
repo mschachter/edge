@@ -401,11 +401,15 @@ class ComplexLinear_layer(object):
             self.b = tf.Variable(tf.complex(np.zeros([1, n_unit]), np.zeros([1, n_unit])), name='b')
 
     def get_new_states(self, n_state):
-        new_h = tf.Variable(tf.zeros([n_state, self.n_unit]), trainable=False, name='h')
+        new_h = tf.Variable(tf.complex(np.zeros([n_state, self.n_unit]), np.zeros([n_state, self.n_unit])),
+                            trainable=False, name='h')
         return new_h,
 
     def initial_state(self, n_batches):
-        return np.random.randn(n_batches, self.n_unit)
+        h = np.zeros([n_batches, self.n_unit], dtype='complex64')
+        h.real = np.random.randn(n_batches, self.n_unit)
+        h.imag = np.random.randn(n_batches, self.n_unit)
+        return h
 
     def step(self, state, x, *d_state, **kwargs):
         """Updates returns the state updated by input x"""
