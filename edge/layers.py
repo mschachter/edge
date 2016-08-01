@@ -11,13 +11,9 @@ def init_weights(n_input, n_unit, hparams, scale=1.):
     return tf.truncated_normal([n_input, n_unit], 0.0, std)
 
 
-def init_complex_weights(n_input, n_unit, hparams):
-
-    std = tf.sqrt(2.0) / tf.sqrt(tf.cast(n_input + n_unit, tf.float32))
-    X = tf.truncated_normal([n_input, n_unit], 0.0, std)
-    Y = tf.truncated_normal([n_input, n_unit], 0.0, std)
-
-    return tf.complex(X, Y)
+def init_vector(n, scale=1.):
+    std = scale * (tf.sqrt(2.0) / tf.sqrt(tf.cast(n, tf.float32)))
+    return tf.truncated_normal([n], 0.0, std)
 
 
 class Linear_Layer(object):
@@ -46,31 +42,7 @@ class Linear_Layer(object):
             l2_b = tf.reduce_mean(tf.square(self.b))
             return self.hparams['output_lambda2']*(l2_W + l2_b)
         else:
-            return 0.0
-
-
-class ComplexOutput_Layer(object):
-    def __init__(self, n_input, n_output, hparams):
-        self.n_input = n_input
-        self.n_unit = n_output
-
-        self.W = tf.Variable(init_complex_weights(n_input, n_output, hparams), name= 'W')
-        self.b = tf.Variable(tf.complex(tf.zeros([n_output]), tf.zeros([n_output])), name = 'b')
-
-        self.hparams = hparams
-
-    def output(self, x):
-        v = tf.nn.xw_plus_b(x, self.W, self.b)
-        return tf.real(v)
-
-    def get_saveable_params(self, session):
-        cnames = ['W', 'b', ]
-        to_compute = [self.W, self.b]
-        cvals = session.run(to_compute)
-        return {k: v for k, v in zip(cnames, cvals)}
-
-    def weight_cost(self):
-        return 0.0
+            return 0.
 
 
 class FeedforwardLayer(object):
@@ -245,11 +217,17 @@ class EI_Layer(object):
             M = self.hparams['mask']
         assert M.shape == (n_unit, n_unit)
 
+        # zero out diagonal weights, include them in a different way
+        M[np.diag_indices(n_unit)] = 0.
+
         with tf.name_scope('ei_layer'):
 
             self.Mr = tf.constant(M.astype('float32'), name='Mr')
             self.Dr = tf.constant(np.diag(self.sign.astype('float32')), name='Dr')
             self.Jr = tf.Variable(init_weights(n_unit, n_unit, self.hparams), name='Jr', trainable=True)
+
+            # initialize self weights
+            self.Sr = tf.Variable(init_vector(n_unit), name='Sr', trainable=True)
 
             self.b = tf.Variable(tf.zeros([1, n_unit]), name='b', trainable=True)
 
@@ -295,7 +273,10 @@ class EI_Layer(object):
 
         xxx = tf.matmul(x, self.W)
         hhh = tf.matmul(h, self.R)
-        h = self.activation(xxx + hhh + self.b)
+
+        hhh_self = h * self.Sr
+
+        h = self.activation(xxx + hhh + hhh_self + self.b)
 
         return h,
 
@@ -386,95 +367,6 @@ class EI_Layer(object):
         plt.axis('tight')
         plt.ylim(-absmax, absmax)
         plt.title('b')
-
-
-class ComplexLinear_layer(object):
-
-    def __init__(self, n_input, n_unit, hparams):
-        self.n_input = n_input
-        self.n_unit = n_unit
-        self.hparams = hparams
-
-        with tf.name_scope('complex_layer'):
-            self.W = tf.Variable(init_complex_weights(n_input, n_unit, hparams), name='W')
-            self.R = tf.Variable(init_complex_weights(n_unit, n_unit, hparams), name='R')
-            self.b = tf.Variable(tf.complex(np.zeros([1, n_unit]), np.zeros([1, n_unit])), name='b')
-
-    def get_new_states(self, n_state):
-        new_h = tf.Variable(tf.complex(np.zeros([n_state, self.n_unit]), np.zeros([n_state, self.n_unit])),
-                            trainable=False, name='h')
-        return new_h,
-
-    def initial_state(self, n_batches):
-        h = np.zeros([n_batches, self.n_unit], dtype='complex64')
-        h.real = np.random.randn(n_batches, self.n_unit)
-        h.imag = np.random.randn(n_batches, self.n_unit)
-        return h
-
-    def step(self, state, x, *d_state, **kwargs):
-        """Updates returns the state updated by input x"""
-        h = state[0]
-        W = self.W
-        R = self.R
-        xxx = tf.matmul(x, W)
-        hhh = tf.matmul(h, R)
-
-        return hhh + xxx,
-
-    def activity_cost(self, state):
-        return 0.
-
-    def get_saveable_params(self, session):
-        to_compute = [self.W, self.R, self.b]
-        vals = session.run(to_compute)
-        params = dict()
-        for k, t in enumerate(to_compute):
-            tname = t.name.split(':')[0]
-            tname = tname.split('/')[-1]
-            params[tname] = vals[k]
-
-        for k, v in self.hparams.items():
-            if np.isscalar(v) or isinstance(v, str):
-                params[k] = v
-
-        return params
-
-    def weight_cost(self):
-        return 0.
-
-    def gradient(self, error, state):
-        return tf.gradients(error, state[0])
-
-    @classmethod
-    def plot(clz, params=None):
-
-        # get current values of weights and bias terms
-        Wnow = params['W']
-        Rnow = params['R']
-        bnow = params['b']
-
-        figsize = (5, 13)
-        plt.figure(figsize=figsize)
-        gs = plt.GridSpec(100, 1)
-
-        ax = plt.subplot(gs[:35, 0])
-        ax.set_axis_background('black')
-        plt.imshow(np.abs(Wnow), interpolation='nearest', aspect='auto', cmap=plt.cm.afmhot)
-        plt.title('W')
-
-        ax = plt.subplot(gs[45:80, 0])
-        ax.set_axis_background('black')
-        plt.imshow(np.abs(Rnow), interpolation='nearest', aspect='auto', cmap=plt.cm.afmhot)
-        plt.title('R')
-
-        ax = plt.subplot(gs[85:, 0])
-        plt.axhline(0, c='k')
-        n_unit = len(bnow.squeeze())
-        plt.bar(range(n_unit), np.abs(bnow).squeeze(), color='k', alpha=0.7)
-        plt.axis('tight')
-        plt.title('b')
-
-
 
 class EDSRNN_Layer(SRNN_Layer):
 

@@ -7,7 +7,6 @@ import layers
 
 
 NET_TYPES = {'SRNN':layers.SRNN_Layer,
-             'CRNN':layers.ComplexLinear_layer,
              'LSTM':layers.LSTM_Layer,
              'GRU':layers.GRU_Layer,
              'EDSRNN':layers.EDSRNN_Layer,
@@ -148,7 +147,7 @@ class Deep_Recurrent_Network():
         for k,ldict in enumerate(self.hparams['layers']):
             with tf.name_scope('layer%d' % k) as scope:
                 # make the layer, which should be responsible for reading the relevant options from the configuration
-                assert ldict['rnn_type'] in NET_TYPES
+                assert ldict['rnn_type'] in NET_TYPES, "No such RNN type %s" % ldict['rnn_type']
                 rnn_class = NET_TYPES[ldict['rnn_type']]
                 rnn_layer = rnn_class(n_in, ldict['n_unit'], ldict)
                 self.layers.append(rnn_layer)
@@ -162,11 +161,9 @@ class Deep_Recurrent_Network():
             if 'output_layer' not in hparams:
                 hparams['output_layer'] = 'linear'
 
-            assert hparams['output_layer'] in ['linear', 'nn', 'complex'], "output_layer must be either 'linear' or 'nn'"
+            assert hparams['output_layer'] in ['linear', 'nn'], "output_layer must be either 'linear' or 'nn'"
             if hparams['output_layer'] == 'linear':
                 self.output_layer = layers.Linear_Layer(n_total_units, hparams['n_out'], hparams)
-            elif hparams['output_layer'] == 'complex':
-                self.output_layer = layers.ComplexOutput_Layer(n_total_units, hparams['n_out'], hparams)
             else:
                 assert 'output_n_hidden' in hparams, "Must specify # of hidden neurons with param output_n_hidden for output_layer=nn"
                 assert 'output_activation' in hparams, "Must specify the activation function for the hidden layer of the output with param output_activation"

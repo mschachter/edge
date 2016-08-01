@@ -19,7 +19,6 @@ from edge.networks import Basic_Network, Deep_Recurrent_Network
 
 
 class MultivariateRNNTrainer(object):
-
     def __init__(self, hparams):
         self.hparams = hparams
 
@@ -63,7 +62,7 @@ class MultivariateRNNTrainer(object):
 
                 print("Building optimization ops...")
 
-                t = tf.Variable(0, name= 't', trainable=False) # the step variable
+                t = tf.Variable(0, name='t', trainable=False)  # the step variable
                 eta = None
 
                 if self.hparams['opt_algorithm'] == 'adam':
@@ -87,14 +86,9 @@ class MultivariateRNNTrainer(object):
     def create_batch_train_op(self):
 
         batch_size = self.hparams['batch_size']
-        is_complex = self.hparams['output_layer'] == 'complex'
-
-        placeholder_dtype = tf.float32
-        if is_complex:
-            placeholder_dtype = tf.complex64
 
         # the input placeholder, contains the entire multivariate input time series for a batch
-        U = tf.placeholder(placeholder_dtype, shape=[batch_size, self.hparams['t_mem'], self.hparams['n_in']])
+        U = tf.placeholder(tf.float32, shape=[batch_size, self.hparams['t_mem'], self.hparams['n_in']])
 
         # the output placeholder, contains the desired multivariate output time series for a batch
         Y = tf.placeholder(tf.float32, shape=[batch_size, self.hparams['t_mem'], self.hparams['n_out']])
@@ -102,7 +96,7 @@ class MultivariateRNNTrainer(object):
         # create placeholders for the initial state, one placeholder for each layer
         state_placeholders = list()
         for layer in self.net.layers:
-            state_placeholders.append(tf.placeholder(placeholder_dtype, shape=[batch_size, layer.n_unit]))
+            state_placeholders.append(tf.placeholder(tf.float32, shape=[batch_size, layer.n_unit]))
 
         next_state = state_placeholders
         weight_cost = self.net.weight_cost()
@@ -111,8 +105,10 @@ class MultivariateRNNTrainer(object):
         batch_err_list = list()
         for t in range(self.hparams['t_mem']):
             # construct the input vector at time t by slicing the input placeholder U, do the same for Y
-            u = tf.reshape(tf.slice(U, [0, t, 0], [batch_size, 1, self.hparams['n_in']]), [batch_size, self.hparams['n_in']])
-            y = tf.reshape(tf.slice(Y, [0, t, 0], [batch_size, 1, self.hparams['n_out']]), [batch_size, self.hparams['n_out']])
+            u = tf.reshape(tf.slice(U, [0, t, 0], [batch_size, 1, self.hparams['n_in']]),
+                           [batch_size, self.hparams['n_in']])
+            y = tf.reshape(tf.slice(Y, [0, t, 0], [batch_size, 1, self.hparams['n_out']]),
+                           [batch_size, self.hparams['n_out']])
 
             # create an op to move the network state forward one time step, given the input
             # vector u and previous hidden state h. do this for all batches in parallel
@@ -132,23 +128,16 @@ class MultivariateRNNTrainer(object):
         batch_err_list = tf.concat(0, batch_err_list)
         batch_err = tf.reduce_mean(batch_err_list)
 
-        return {'U':U, 'Y':Y, 'state':state_placeholders, 'batch_err':batch_err, 'next_state':next_state}
+        return {'U': U, 'Y': Y, 'state': state_placeholders, 'batch_err': batch_err, 'next_state': next_state}
 
     def create_run_op(self):
-
-        is_complex = self.hparams['output_layer'] == 'complex'
-
-        placeholder_dtype = tf.float32
-        if is_complex:
-            placeholder_dtype = tf.complex64
-
         # the input placeholder, contains the entire multivariate input time series for a batch
-        U = tf.placeholder(placeholder_dtype, shape=[self.hparams['t_mem_run'], self.hparams['n_in']])
+        U = tf.placeholder(tf.float32, shape=[self.hparams['t_mem_run'], self.hparams['n_in']])
 
         # create placeholders for the initial state, one placeholder for each layer
         state_placeholders = list()
         for layer in self.net.layers:
-            state_placeholders.append(tf.placeholder(placeholder_dtype, shape=[1, layer.n_unit]))
+            state_placeholders.append(tf.placeholder(tf.float32, shape=[1, layer.n_unit]))
 
         next_state = state_placeholders
 
@@ -163,15 +152,15 @@ class MultivariateRNNTrainer(object):
             next_state, yhat = self.net.step(next_state, u)
             net_preds.append(yhat)
 
-        return {'net_preds':net_preds, 'state':state_placeholders, 'U':U, 'next_state':next_state}
+        return {'net_preds': net_preds, 'state': state_placeholders, 'U': U, 'next_state': next_state}
 
     def train(self, Utrain, Ytrain, Utest, Ytest, test_check_interval=5, plot_layers_during_training=False):
 
         start_time = time.time()
         n_train_steps = self.hparams['n_train_steps']
-        
-        n_batches,n_segs_per_batch,t_mem,n_in = Utrain.shape
-        n_batches2,n_segs_per_batch2,t_mem2,n_out = Ytrain.shape
+
+        n_batches, n_segs_per_batch, t_mem, n_in = Utrain.shape
+        n_batches2, n_segs_per_batch2, t_mem2, n_out = Ytrain.shape
         assert n_batches == n_batches2
         assert n_segs_per_batch == n_segs_per_batch2
         assert t_mem == t_mem2
@@ -210,8 +199,8 @@ class MultivariateRNNTrainer(object):
                     # put the input and output matrices in the feed dictionary for this minibatch
                     Uk = Utrain[:, seg, :, :]
                     Yk = Ytrain[:, seg, :, :]
-                    feed_dict = {self.train_vars['U']:Uk, self.train_vars['Y']:Yk}
-                    for k,state_placeholder in enumerate(self.train_vars['state']):
+                    feed_dict = {self.train_vars['U']: Uk, self.train_vars['Y']: Yk}
+                    for k, state_placeholder in enumerate(self.train_vars['state']):
                         feed_dict[state_placeholder] = h0[k]
 
                     to_compute = [self.train_vars['batch_err'], self.train_vars['eta'], self.train_vars['apply_grads']]
@@ -233,20 +222,20 @@ class MultivariateRNNTrainer(object):
                     converged = True
                 if mean_seg_err < lowest_mean_err:
                     lowest_mean_err = mean_seg_err
-                elif mean_seg_err > 1.02*lowest_mean_err:
+                elif mean_seg_err > 1.02 * lowest_mean_err:
                     print("Stopping optimization after this iteration because training error has increased too much.")
                     converged = True
 
                 test_err = np.nan
-                if test_check and ((step % test_check_interval == 0) or (step == n_train_steps-1)):
+                if test_check and ((step % test_check_interval == 0) or (step == n_train_steps - 1)):
                     # average initial states across batches to get an initial state for the test set
                     h0_mean = list()
                     for h in h0:
-                        nb,nu = h.shape
+                        nb, nu = h.shape
                         h0_mean.append(h.mean(axis=0).reshape([1, nu]))
 
                     Yhat = self.run_network(Utest, h0_mean, session)
-                    test_err = np.mean((Yhat - Ytest)**2)
+                    test_err = np.mean((Yhat - Ytest) ** 2)
                     epoch_test_errs.append((step, test_err))
                     self.test_preds = Yhat
 
@@ -255,7 +244,7 @@ class MultivariateRNNTrainer(object):
                       (step, eta_val, mean_seg_err, seg_errs.std(ddof=1), test_err, etime))
 
                 if plot_layers_during_training:
-                    for k,layer in enumerate(self.net.layers):
+                    for k, layer in enumerate(self.net.layers):
                         layer_params = layer.get_saveable_params(session)
                         layer.plot(layer_params)
                         plt.suptitle('Iter %d: Layer %d, type=%s' % (step, k, layer.hparams['rnn_type']))
@@ -266,7 +255,7 @@ class MultivariateRNNTrainer(object):
             self.lowest_err = lowest_mean_err
 
             self.trained_params = dict()
-            for k,layer in enumerate(self.net.layers):
+            for k, layer in enumerate(self.net.layers):
                 ldict = layer.get_saveable_params(session)
                 self.trained_params['layer%d' % k] = ldict
             self.trained_params['output_layer'] = self.net.output_layer.get_saveable_params(session)
@@ -274,8 +263,8 @@ class MultivariateRNNTrainer(object):
             self.train_time = time.time() - start_time
 
     def run_network(self, U, h0, session):
-        n_segs,t_mem_run,n_in = U.shape
-        Yhat = np.zeros([t_mem_run*n_segs, self.hparams['n_out']])
+        n_segs, t_mem_run, n_in = U.shape
+        Yhat = np.zeros([t_mem_run * n_segs, self.hparams['n_out']])
         h = h0
 
         to_compute = list()
@@ -284,16 +273,14 @@ class MultivariateRNNTrainer(object):
         to_compute.extend(self.run_vars['next_state'])
 
         for k in range(n_segs):
-            si = k*t_mem_run
+            si = k * t_mem_run
             ei = si + t_mem_run
 
-            fdict = {self.run_vars['U']:U[k, :, :]}
-            for k,state_placeholder in enumerate(self.run_vars['state']):
+            fdict = {self.run_vars['U']: U[k, :, :]}
+            for k, state_placeholder in enumerate(self.run_vars['state']):
                 fdict[state_placeholder] = h[k]
             compute_vals = session.run(to_compute, feed_dict=fdict)
             ypred = np.array(compute_vals[:npreds]).squeeze()
-            if len(ypred.shape) == 1:
-                ypred = ypred.reshape([len(ypred), 1])
             h = compute_vals[npreds:]
             Yhat[si:ei, :] = ypred
 
@@ -326,16 +313,16 @@ class MultivariateRNNTrainer(object):
             plt.ylabel('Test Error')
             plt.title('Test Error')
 
-        n_segs_test,t_test_run,n_out = self.test_preds.shape
-        ns,nt,nf = Ytest.shape
+        n_segs_test, t_test_run, n_out = self.test_preds.shape
+        ns, nt, nf = Ytest.shape
         assert nf == n_out
         nrows_per_plot = int(100. / nf)
         row_padding = 5
 
         for k in range(nf):
             # compute the correlation coefficient for each output prediction
-            yt = Ytest[:, :, k].reshape([n_segs_test*t_test_run])
-            yhatt = self.test_preds[:, :, k].reshape([n_segs_test*t_test_run])
+            yt = Ytest[:, :, k].reshape([n_segs_test * t_test_run])
+            yhatt = self.test_preds[:, :, k].reshape([n_segs_test * t_test_run])
             ycc = np.corrcoef(yt, yhatt)[0, 1]
 
             if text_only:
@@ -343,8 +330,8 @@ class MultivariateRNNTrainer(object):
 
             else:
                 # make a plot of the validation output series and the prediction
-                gs_i = k*nrows_per_plot
-                gs_e = ((k+1)*nrows_per_plot)-row_padding
+                gs_i = k * nrows_per_plot
+                gs_e = ((k + 1) * nrows_per_plot) - row_padding
                 ax = plt.subplot(gs[gs_i:gs_e, 35:])
 
                 plt.plot(yt, 'k-', linewidth=4.0, alpha=0.7)
@@ -367,7 +354,7 @@ class MultivariateRNNTrainer(object):
         hf = h5py.File(output_file, 'w')
 
         hf.attrs['n_layers'] = len(self.net.layers)
-        for k,v in self.hparams.items():
+        for k, v in self.hparams.items():
             if np.isscalar(v) or isinstance(v, str):
                 hf.attrs[k] = v
 
@@ -377,16 +364,15 @@ class MultivariateRNNTrainer(object):
         hf.attrs['train_time'] = self.train_time
         hf['test_preds'] = self.test_preds
 
-        for lkey,ldict in self.trained_params.items():
+        for lkey, ldict in self.trained_params.items():
             lgrp = hf.create_group(lkey)
-            for pname,pval in ldict.items():
+            for pname, pval in ldict.items():
                 lgrp[pname] = pval
 
         hf.close()
 
 
 def read_config(config_file, n_in, n_out, override_params=dict()):
-
     with open(config_file) as config_f:
         net_params = yaml.load(config_f.read())
 
@@ -394,19 +380,20 @@ def read_config(config_file, n_in, n_out, override_params=dict()):
     hparams = dict()
     hparams['n_in'] = n_in
     hparams['n_out'] = n_out
-    for key,val in net_params.items():
+    for key, val in net_params.items():
         if key == 'layers':
             layers = list()
 
-            for k,ldict in enumerate(val):
+            for k, ldict in enumerate(val):
                 if k == 0:
                     layer_n_in = n_in
                 else:
-                    layer_n_in = layers[k-1]['n_unit']
+                    layer_n_in = layers[k - 1]['n_unit']
 
                 ldict['n_in'] = layer_n_in
                 for lkey in ldict.keys():
-                    if lkey in override_params and lkey in ['activation', 'n_unit', 'lambda1', 'lambda2', 'space_const', 'ei_ratio']:
+                    if lkey in override_params and lkey in ['activation', 'n_unit', 'lambda1', 'lambda2', 'space_const',
+                                                            'ei_ratio']:
                         print("overriding param %s with %s" % (lkey, override_params[lkey]))
                         ldict[lkey] = override_params[lkey]
 
@@ -433,26 +420,23 @@ if __name__ == '__main__':
     n_out = 3
     t_in = 10000
 
-    # hparams = read_config('param/deep_ei.yaml', n_in, n_out, override_params={'ei_ratio':0.3})
-    hparams = read_config('param/deep_crnn.yaml', n_in, n_out)
-
-    # the "memory" of the network, how many time steps BPTT is run for
-    t_mem = 20
+    # hparams = read_config('param/deep_ei.yaml', n_in, n_out, override_params={'ei_ratio': 0.3})
+    hparams = read_config('param/deep_ei.yaml', n_in, n_out)
+    t_mem = hparams['t_mem']
 
     # set the time length per batch (the effective
     assert t_in % t_mem == 0
     n_samps = int(t_in / t_mem)
 
     # create some fake data for training
-    Utrain, Xtrain, Ytrain, sample_params = create_sample_data(n_in, n_hid_data, n_out, t_in, n_samps,
-                                                               segment_U=True, complex=hparams['output_layer'] == 'complex')
+    Utrain, Xtrain, Ytrain, sample_params = create_sample_data(n_in, n_hid_data, n_out, t_in, n_samps, segment_U=True)
 
     # segment the training data into parallel batches, each batch is a continuous temporal segment of data
     # broken down into segments of length t_mem
     nsegs = Utrain.shape[0]
     n_batches = 10
-    Utrain = Utrain.reshape([n_batches, nsegs/n_batches, t_mem, n_in])
-    Ytrain = Ytrain.reshape([n_batches, nsegs/n_batches, t_mem, n_out])
+    Utrain = Utrain.reshape([n_batches, nsegs / n_batches, t_mem, n_in])
+    Ytrain = Ytrain.reshape([n_batches, nsegs / n_batches, t_mem, n_out])
 
     print("Utrain.shape=" + str(Utrain.shape))
     print("Ytrain.shape=" + str(Ytrain.shape))
@@ -462,24 +446,24 @@ if __name__ == '__main__':
     t_test_total = 1000
     n_test_segs = int(t_test_total / t_mem_run)
 
-    Utest,Xtest,Ytest,sample_params2 = create_sample_data(n_in, n_hid_data, n_out, t_test_total, n_test_segs, segment_U=True,
-                                                          Win=sample_params['Win'],
-                                                          W=sample_params['W'],
-                                                          b=sample_params['b'],
-                                                          Wout=sample_params['Wout'],
-                                                          bout=sample_params['bout'],
-                                                          complex=hparams['output_layer'] == 'complex')
+    Utest, Xtest, Ytest, sample_params2 = create_sample_data(n_in, n_hid_data, n_out, t_test_total, n_test_segs,
+                                                             segment_U=True,
+                                                             Win=sample_params['Win'],
+                                                             W=sample_params['W'],
+                                                             b=sample_params['b'],
+                                                             Wout=sample_params['Wout'],
+                                                             bout=sample_params['bout'])
 
     print("Utest.shape=" + str(Utest.shape))
     print("Ytest.shape=" + str(Ytest.shape))
 
     print('')
     print('------ Network Params ------')
-    for k,v in hparams.items():
+    for k, v in hparams.items():
         if k != 'layers':
             print('%s=%s' % (k, str(v)))
 
-    for k,ldict in enumerate(hparams['layers']):
+    for k, ldict in enumerate(hparams['layers']):
         print("Layer %d: type=%s, n_in=%d, n_unit=%d, activation=%s" %
               (k, ldict['rnn_type'], ldict['n_in'], ldict['n_unit'], ldict['activation']))
 
