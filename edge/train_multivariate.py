@@ -38,6 +38,9 @@ class MultivariateRNNTrainer(object):
         self.lowest_err = None
         self.train_time = None
 
+        self.test_preds = None
+        self.test_ccs = None
+
         self.build()
 
     def build(self):
@@ -235,9 +238,25 @@ class MultivariateRNNTrainer(object):
                         h0_mean.append(h.mean(axis=0).reshape([1, nu]))
 
                     Yhat = self.run_network(Utest, h0_mean, session)
-                    test_err = np.mean((Yhat - Ytest) ** 2)
+
+                    # check for test error increase
+                    if len(epoch_test_errs) > 0:
+                        last_err = epoch_test_errs[-1][1]
+                        test_err = np.mean((Yhat - Ytest) ** 2)
+                        if test_err > last_err:
+                            print 'Test error is increasing, setting converged=True'
+                            converged = True
+
                     epoch_test_errs.append((step, test_err))
+                    # compute the correlation coefficient between each output time series and the prediction
+                    num_output_chans = Yhat.shape[-1]
+                    nt = Yhat.shape[0]*Yhat.shape[1]
+                    self.test_ccs = np.zeros([num_output_chans])
+                    for k in range(num_output_chans):
+                        self.test_ccs[k] = np.corrcoef(Yhat[:, :, k].reshape([nt]), Ytest[:, :, k].reshape([nt]))[0, 1]
                     self.test_preds = Yhat
+
+                    print 'test_ccs=',self.test_ccs
 
                 etime = time.time() - stime
                 print('iter=%d, eta=%0.6f, train_err=%0.6f +/- %0.6f, test_err=%0.6f, time=%0.3fs' % \
@@ -363,6 +382,7 @@ class MultivariateRNNTrainer(object):
         hf.attrs['lowest_err'] = self.lowest_err
         hf.attrs['train_time'] = self.train_time
         hf['test_preds'] = self.test_preds
+        hf['test_ccs'] = self.test_ccs
 
         for lkey, ldict in self.trained_params.items():
             lgrp = hf.create_group(lkey)
