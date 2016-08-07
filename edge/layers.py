@@ -201,6 +201,96 @@ class SRNN_Layer(object):
         plt.title('b')
 
 
+class LowDLayer(SRNN_Layer):
+
+    def __init__(self, n_input, n_unit, hparams):
+        SRNN_Layer.__init__(self, n_input, n_unit, hparams)
+
+        assert 'lowd_inner_dim' in hparams, "Must supply a value for 'lowd_inner_dim' in hparams"
+        self.inner_dim = hparams['lowd_inner_dim']
+
+        del self.R
+
+        with tf.name_scope('lowd_layer'):
+            self.A = tf.Variable(init_weights(n_unit, self.inner_dim, hparams), name='A')
+            self.B = tf.Variable(init_weights(self.inner_dim, n_unit, hparams), name='B')
+
+    def step(self, state, x, *d_state, **kwargs):
+        """Updates returns the state updated by input x"""
+        h = state[0]
+        W = self.W
+        xxx = tf.matmul(x, W)
+        aaa = tf.matmul(h, self.A)
+        bbb = tf.matmul(aaa, self.B)
+        h = self.activation(xxx + bbb + self.b)
+
+        return h,
+
+    def get_saveable_params(self, session):
+        to_compute = [self.W, self.A, self.B, self.b]
+        vals = session.run(to_compute)
+        params = dict()
+        for k, t in enumerate(to_compute):
+            tname = t.name.split(':')[0]
+            tname = tname.split('/')[-1]
+            params[tname] = vals[k]
+
+        for k, v in self.hparams.items():
+            if np.isscalar(v) or isinstance(v, str):
+                params[k] = v
+
+        return params
+
+    def weight_cost(self):
+        total_cost = tf.constant(0.)
+        if 'lambda2' in self.hparams and self.hparams['lambda2'] > 0:
+            l2_W = tf.reduce_mean(tf.square(self.W))
+            l2_A = tf.reduce_mean(tf.square(self.A))
+            l2_B = tf.reduce_mean(tf.square(self.B))
+            l2_b = tf.reduce_mean(tf.square(self.b))
+            total_cost += self.hparams['lambda2'] * (l2_W + l2_A + l2_B + l2_b)
+
+        if 'lambda1' in self.hparams and self.hparams['lambda1'] > 0:
+            l1_A = tf.reduce_mean(tf.abs(self.A))
+            l1_B = tf.reduce_mean(tf.abs(self.B))
+            total_cost += self.hparams['lambda1'] * (l1_A + l1_B)
+
+        return total_cost
+
+    @classmethod
+    def plot(clz, params=None):
+
+        # get current values of weights and bias terms
+        Wnow = params['W']
+        Anow = params['A']
+        Bnow = params['B']
+        Rnow = np.dot(Anow, Bnow)
+        bnow = params['b']
+
+        figsize = (5, 13)
+        plt.figure(figsize=figsize)
+        gs = plt.GridSpec(100, 1)
+
+        ax = plt.subplot(gs[:35, 0])
+        absmax = np.abs(Wnow).max()
+        plt.imshow(Wnow, interpolation='nearest', aspect='auto', vmin=-absmax, vmax=absmax, cmap=plt.cm.seismic)
+        plt.title('W')
+
+        ax = plt.subplot(gs[45:80, 0])
+        absmax = np.abs(Rnow).max()
+        plt.imshow(Rnow, interpolation='nearest', aspect='auto', vmin=-absmax, vmax=absmax, cmap=plt.cm.seismic)
+        plt.title('R')
+
+        ax = plt.subplot(gs[85:, 0])
+        absmax = np.abs(bnow).max()
+        plt.axhline(0, c='k')
+        n_unit = len(bnow.squeeze())
+        plt.bar(range(n_unit), bnow.squeeze(), color='k', alpha=0.7)
+        plt.axis('tight')
+        plt.ylim(-absmax, absmax)
+        plt.title('b')
+
+
 class EI_Layer(object):
 
     def __init__(self, n_input, n_unit, hparams, input_weight_mask=None, input_sign=None):

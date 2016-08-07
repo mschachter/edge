@@ -316,7 +316,8 @@ class MultivariateRNNTrainer(object):
             train_err_mean = self.epoch_errs.mean(axis=1)
             train_err_std = self.epoch_errs.std(axis=1, ddof=1)
             ax = plt.subplot(gs[:45, :30])
-            plt.errorbar(range(1, n_train_steps), train_err_mean[1:], yerr=train_err_std[1:],
+            num_iters = len(train_err_mean[1:])
+            plt.errorbar(range(1, num_iters+1), train_err_mean[1:], yerr=train_err_std[1:],
                          linewidth=4.0, c='r', alpha=0.7, elinewidth=2.0, ecolor='k')
             plt.axis('tight')
             plt.xlabel('Epoch')
@@ -441,7 +442,7 @@ if __name__ == '__main__':
     t_in = 10000
 
     # hparams = read_config('param/deep_ei.yaml', n_in, n_out, override_params={'ei_ratio': 0.3})
-    hparams = read_config('param/deep_ei.yaml', n_in, n_out)
+    hparams = read_config('param/deep_lowd.yaml', n_in, n_out)
     t_mem = hparams['t_mem']
 
     # set the time length per batch (the effective

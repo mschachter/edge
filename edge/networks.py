@@ -7,6 +7,7 @@ import layers
 
 
 NET_TYPES = {'SRNN':layers.SRNN_Layer,
+             'LOWD':layers.LowDLayer,
              'LSTM':layers.LSTM_Layer,
              'GRU':layers.GRU_Layer,
              'EDSRNN':layers.EDSRNN_Layer,
